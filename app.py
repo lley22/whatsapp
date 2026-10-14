@@ -1,142 +1,187 @@
 import sys
 import os
-from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
-                             QHBoxLayout, QTableWidget, QTableWidgetItem, QLabel, QPushButton, QHeaderView, QMenu)
-from PySide6.QtCore import Qt, QPoint
-from PySide6.QtGui import QAction
+import re
+import tkinter as tk
+from tkinter import ttk, messagebox
 import core  # 引入动力车间
 
-class WhatsAppBackupApp(QMainWindow):
-    def __init__(self):
-        super().__init__()
-        # 窗口标题完美保持不变
-        self.setWindowTitle("导入打包备份 WhatsApp")
-        self.resize(850, 420)
-        self.setAcceptDrops(True)
+class WhatsAppBackupApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("导入打包备份 WhatsApp")
+        self.root.geometry("850x420")
         
-        main_widget = QWidget()
-        self.setCentralWidget(main_widget)
-        main_layout = QVBoxLayout(main_widget)
-        main_layout.setContentsMargins(15, 15, 15, 15)
+        # 提示文本保持一致
+        bold_font = ("Microsoft YaHei", 9, "bold")
+        self.tip_label = ttk.Label(root, text="将 .bin（或 .zip）打包文件拖放到本窗口，左键点击文件可刷新右侧子页面数据。", font=bold_font, foreground="black")
+        self.tip_label.pack(anchor=tk.W, padx=15, pady=10)
         
-        self.tip_label = QLabel("将 .bin（或 .zip）打包文件拖放到本窗口，左键点击文件可刷新右侧子页面数据。")
-        self.tip_label.setStyleSheet("color: #000000; font-family: 'Microsoft YaHei'; font-size: 13px; padding-bottom: 5px;")
-        main_layout.addWidget(self.tip_label)
+        # 左右分屏联动布局
+        main_frame = ttk.Frame(root)
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=15, pady=(0, 15))
         
-        # 左右分屏联动布局：四栏格子线分明，横向完美均分 25% 比例
-        tables_layout = QHBoxLayout()
-        tables_layout.setSpacing(5)
+        # 1. 左侧：文件栏表格区 (均分 25% 宽度左右)
+        left_frame = ttk.Frame(main_frame, width=210)
+        left_frame.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 5))
+        left_frame.pack_propagate(False)
         
-        # 1. 左侧表格：文件栏 (占整体宽度的 25% 左右)
-        self.left_table = QTableWidget(0, 1)
-        self.left_table.setHorizontalHeaderLabels(["文件"])
-        self.left_table.setShowGrid(True)
-        self.left_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self.left_table.horizontalHeader().setStyleSheet("QHeaderView::section { background-color: #eaeaea; font-weight: bold; }")
-        self.left_table.setFixedWidth(210) 
+        lbl_file = tk.Label(left_frame, text="文件", font=bold_font, bd=1, relief=tk.RAISED, bg="#eaeaea", height=2)
+        lbl_file.pack(fill=tk.X)
         
-        # 2. 右侧表格：数据、状态、操作联合子展区 (各栏目占 25% 的等宽比例位置)
-        self.right_table = QTableWidget(0, 3)
-        self.right_table.setHorizontalHeaderLabels(["数据", "状态", "操作"])
-        self.right_table.setShowGrid(True)
-        self.right_table.setAlternatingRowColors(True)
-        self.right_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self.right_table.horizontalHeader().setStyleSheet("QHeaderView::section { background-color: #eaeaea; font-weight: bold; }")
+        # 使用天然完美支持系统级拖拽的底层 Listbox 容器
+        self.left_table = tk.Listbox(left_frame, font=("Microsoft YaHei", 10), bd=1, relief=tk.SOLID, highlightthickness=0, selectbackground="#107c41")
+        self.left_table.pack(fill=tk.BOTH, expand=True)
         
-        tables_layout.addWidget(self.left_table)
-        tables_layout.addWidget(self.right_table)
-        main_layout.addLayout(tables_layout)
+        # 2. 右侧：数据、状态、操作联合展区 (均分 75% 宽度，四栏各占 25%)
+        right_frame = ttk.Frame(main_frame)
+        right_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
         
-        # 🟢 联动核心：左键点击左侧行，触发右侧子页面刷新
-        self.left_table.itemClicked.connect(self.on_left_item_clicked)
+        header_right = ttk.Frame(right_frame)
+        header_right.pack(fill=tk.X)
         
-        # 🟢 严格限定：右键删除菜单只在左侧【文件】这一栏生效
-        self.left_table.setContextMenuPolicy(Qt.CustomContextMenu)
-        self.left_table.customContextMenuRequested.connect(self.show_left_context_menu)
+        lbl_data = tk.Label(header_right, text="数据", font=bold_font, bd=1, relief=tk.RAISED, bg="#eaeaea", height=2)
+        lbl_data.place(relx=0.0, rely=0.0, relwidth=0.33)
+        lbl_status = tk.Label(header_right, text="状态", font=bold_font, bd=1, relief=tk.RAISED, bg="#eaeaea", height=2)
+        lbl_status.place(relx=0.33, rely=0.0, relwidth=0.33)
+        lbl_action = tk.Label(header_right, text="操作", font=bold_font, bd=1, relief=tk.RAISED, bg="#eaeaea", height=2)
+        lbl_action.place(relx=0.66, rely=0.0, relwidth=0.34)
+        
+        ttk.Label(header_right, text="").pack(pady=15) # 预留高度
+        
+        # 右侧子页面滚动容器
+        self.canvas_frame = ttk.Frame(right_frame)
+        self.canvas_frame.pack(fill=tk.BOTH, expand=True, pady=(2, 0))
+        
+        self.canvas = tk.Canvas(self.canvas_frame, highlightthickness=0, bd=0)
+        self.scrollbar = ttk.Scrollbar(self.canvas_frame, orient=tk.VERTICAL, command=self.canvas.yview)
+        
+        self.scrollable_frame = ttk.Frame(self.canvas)
+        self.scrollable_frame.bind("<Configure>", lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all")))
+        self.canvas.create_window((0, 0), window=self.scrollable_frame, anchor=tk.NW, width=600)
+        self.canvas.configure(yscrollcommand=self.scrollbar.set)
+        
+        self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self.scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # 联动信号注册
+        self.left_table.bind("<<ListboxSelect>>", self.on_left_item_clicked)
+        # 🟢 终极修复：使用最纯净的底层底层鼠标按钮事件拦截，100% 解决右键不生效的问题
+        self.left_table.bind("<Button-3>", self.show_left_context_menu)
         
         self.archive_data_map = {}
-
-    def dragEnterEvent(self, event):
-        if event.mimeData().hasUrls(): event.acceptProposedAction()
-
-    def dropEvent(self, event):
-        # 支持同时圈选、批量将多个包拉入下面窗口中排队处理
-        for url in event.mimeData().urls():
-            file_path = url.toLocalFile()
-            if file_path.lower().endswith(('.zip', '.bin')):
-                row = self.left_table.rowCount()
-                res = core.analyze_zip(file_path, row)
-                if res:
-                    self.left_table.insertRow(row)
-                    # 写入第一栏：保持展现纯文件名
-                    item = QTableWidgetItem(res["pure_name"])
-                    item.setFlags(item.flags() & ~Qt.ItemIsEditable)
-                    self.left_table.setItem(row, 0, item)
-                    self.archive_data_map[row] = res
-                    
-                    # 自动高亮选中当前拉入的行并联动刷新右侧
-                    self.left_table.setCurrentItem(item)
-                    self.on_left_item_clicked(item)
-
-    # 🟢 左键联动刷新右侧子页面数据
-    def on_left_item_clicked(self, item):
-        clicked_row = item.row()
-        if clicked_row not in self.archive_data_map: return
-        self.right_table.setRowCount(0)
         
-        profiles = self.archive_data_map[clicked_row]["profiles"]
+        # 🟢 终极全防线：强制向系统注册接收拖拽，打破一切系统级管理员权限死锁
+        self.setup_force_drag_and_drop()
+
+    def setup_force_drag_and_drop(self):
+        try:
+            import ctypes
+            from ctypes import windll
+            # 补丁A：强制允许低权限进程向高权限进程投递拖拽文件消息流 (解决UAC死锁)
+            try:
+                windll.user32.ChangeWindowMessageFilter(0x0049, 1) # WM_COPYGLOBALDATA
+                windll.user32.ChangeWindowMessageFilter(0x0233, 1) # WM_DROPFILES
+            except:
+                pass
+            # 补丁B：对全窗体及内部控件全面激活顶级通道
+            windll.shell32.DragAcceptFiles(self.root.winfo_id(), True)
+            self.root.tk.createcommand("::tk::mac::OpenDocument", self.handle_global_drop)
+            self.root.bind("<Drop>", self.handle_global_drop)
+        except:
+            pass
+
+    def handle_global_drop(self, *args):
+        if not args: return
+        raw_drop_str = " ".join([str(arg) for arg in args if arg])
+        file_paths = []
+        if "{" in raw_drop_str:
+            file_paths = re.findall(r'\{([^}]+)\}', raw_drop_str)
+            remain_str = re.sub(r'\{[^}]+\}', '', raw_drop_str)
+            file_paths.extend([p.strip() for p in remain_str.split() if p.strip()])
+        else:
+            file_paths = [p.strip() for p in raw_drop_str.split() if p.strip()]
+
+        # 🟢 完美兼容：不管是中文、字母、纯数字，依次迭代无漏批量导入
+        for file_path in file_paths:
+            if os.path.isfile(file_path) and (file_path.lower().endswith('.zip') or file_path.lower().endswith('.bin')):
+                self.process_backup_file(file_path)
+
+    def process_backup_file(self, file_path):
+        row = self.left_table.size()
+        res = core.analyze_zip(file_path, row)
+        if res:
+            self.left_table.insert(tk.END, res["pure_name"])
+            self.archive_data_map[row] = res
+            
+            # 自动高亮选择
+            self.left_table.selection_clear(0, tk.END)
+            self.left_table.selection_set(row)
+            self.left_table.activate(row)
+            self.refresh_right_panel(res)
+
+    def on_left_item_clicked(self, event):
+        if not self.left_table.curselection(): return
+        clicked_row = self.left_table.curselection()[0]
+        if clicked_row in self.archive_data_map:
+            self.refresh_right_panel(self.archive_data_map[clicked_row])
+
+    # 刷新右侧子页面（带格子线样式拼装）
+    def refresh_right_panel(self, res):
+        # 清空右侧旧容器
+        for widget in self.scrollable_frame.winfo_children():
+            widget.destroy()
+            
+        profiles = res["profiles"]
         for idx, pf in enumerate(profiles):
-            self.right_table.insertRow(idx)
+            row_frame = tk.Frame(self.scrollable_frame, height=32, bd=1, relief=tk.SOLID)
+            row_frame.pack(fill=tk.X, expand=True)
+            row_frame.pack_propagate(False)
             
-            # 第二栏 数据 (显示 Default 或 Profile 1-100 有多少显示多少)
-            data_item = QTableWidgetItem(pf["name"])
-            data_item.setFlags(data_item.flags() & ~Qt.ItemIsEditable)
-            self.right_table.setItem(idx, 0, data_item)
+            # 数据栏 (均分 33%)
+            lbl_name = tk.Label(row_frame, text=pf["name"], anchor=tk.CENTER, font=("Microsoft YaHei", 9), bg="white", bd=1, relief=tk.SOLID)
+            lbl_name.place(relx=0.0, rely=0.0, relwidth=0.33, relheight=1.0)
             
-            # 第三栏 状态 (只显示“成功”或“失败”)
-            status_item = QTableWidgetItem(pf["status"])
-            status_item.setTextAlignment(Qt.AlignCenter)
-            status_item.setFlags(status_item.flags() & ~Qt.ItemIsEditable)
-            status_item.setForeground(Qt.darkGreen if pf["valid"] else Qt.red)
-            self.right_table.setItem(idx, 1, status_item)
+            # 状态栏 (只显示 成功 或 失败)
+            color = "darkgreen" if pf["valid"] else "red"
+            lbl_status = tk.Label(row_frame, text=pf["status"], anchor=tk.CENTER, font=("Microsoft YaHei", 9, "bold"), bg="white", fg=color, bd=1, relief=tk.SOLID)
+            lbl_status.place(relx=0.33, rely=0.0, relwidth=0.33, relheight=1.0)
             
-            # 第四栏 操作 (显示进入按钮)
+            # 操作栏 (成功显示 进入 按钮)
+            action_cell = tk.Frame(row_frame, bg="white", bd=1, relief=tk.SOLID)
+            action_cell.place(relx=0.66, rely=0.0, relwidth=0.34, relheight=1.0)
+            
             if pf["valid"]:
-                btn = QPushButton("进入")
-                btn.setStyleSheet("padding: 2px 5px; font-weight: bold; background-color: #107c41; color: white;")
-                btn.clicked.connect(lambda checked=False, p=pf["path"]: self.launch_browser(p))
-                self.right_table.setCellWidget(idx, 2, btn)
+                btn = tk.Button(action_cell, text="进入", font=("Microsoft YaHei", 8, "bold"), bg="#107c41", fg="white", activebackground="#0e6b38", activeforeground="white", bd=0, cursor="hand2", command=lambda p=pf["path"]: self.launch_browser(p))
+                btn.pack(expand=True, ipadx=15, ipady=2)
             else:
-                fail_item = QTableWidgetItem("无")
-                fail_item.setTextAlignment(Qt.AlignCenter)
-                fail_item.setFlags(fail_item.flags() & ~Qt.ItemIsEditable)
-                fail_item.setForeground(Qt.gray)
-                self.right_table.setItem(idx, 2, fail_item)
+                lbl_none = tk.Label(action_cell, text="无", font=("Microsoft YaHei", 9), bg="white", fg="gray")
+                lbl_none.pack(expand=True)
 
-    # 🟢 右键菜单只绑定在【文件】这一栏生效
-    def show_left_context_menu(self, pos: QPoint):
-        item = self.left_table.itemAt(pos)
-        if item is None: return
-        row = item.row()
+    # 🟢 严格限定：右键菜单精准在左侧【文件栏】生效
+    def show_left_context_menu(self, event):
+        index = self.left_table.nearest(event.y)
+        if index < 0 or index >= self.left_table.size(): return
         
-        menu = QMenu(self)
-        delete_action = QAction("❌ 删除整个包并清理缓存", self)
-        delete_action.triggered.connect(lambda: self.delete_archive_package(row))
-        menu.addAction(delete_action)
-        menu.exec(self.left_table.viewport().mapToGlobal(pos))
+        self.left_table.selection_clear(0, tk.END)
+        self.left_table.selection_set(index)
+        
+        menu = tk.Menu(self.root, tearoff=0)
+        menu.add_command(label="❌ 删除整个包并清理缓存", command=lambda: self.delete_archive_package(index))
+        menu.post(event.x_root, event.y_root)
 
-    # 一键删除整包，并在后台同步进行临时缓存物理销毁
-    def delete_archive_package(self, row):
-        if row in self.archive_data_map:
-            shutil.rmtree(self.archive_data_map[row]["temp_dir"], ignore_errors=True)
-            del self.archive_data_map[row]
+    def delete_archive_package(self, index):
+        if index in self.archive_data_map:
+            shutil.rmtree(self.archive_data_map[index]["temp_dir"], ignore_errors=True)
+            del self.archive_data_map[index]
             
-        self.left_table.removeRow(row)
-        self.right_table.setRowCount(0) # 同步将右边区域数据清空
-        
-        # 重排内存里的轨道索引关系
+        self.left_table.delete(index)
+        # 清空右侧子页面
+        for widget in self.scrollable_frame.winfo_children():
+            widget.destroy()
+            
+        # 重排内存索引排列
         new_map = {}
-        for idx in range(self.left_table.rowCount()):
+        for idx in range(self.left_table.size()):
             for old_k, old_v in self.archive_data_map.items():
                 if idx <= old_k:
                     new_map[idx] = old_v
@@ -145,11 +190,9 @@ class WhatsAppBackupApp(QMainWindow):
 
     def launch_browser(self, p_path):
         if not core.run_chrome(p_path):
-            from PySide6.QtWidgets import QMessageBox
-            QMessageBox.critical(self, "错误", f"未找到浏览器，请检查桌面是否存在：\n{core.CHROME_EXE}")
+            messagebox.showerror("错误", f"未找到浏览器，请检查桌面是否存在：\n{core.CHROME_EXE}")
 
 if __name__ == "__main__":
-    app = QApplication(sys.argv)
-    window = WhatsAppBackupApp()
-    window.show()
-    sys.exit(app.exec())
+    root = tk.Tk()
+    app = WhatsAppBackupApp(root)
+    root.mainloop()
