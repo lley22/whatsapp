@@ -9,9 +9,7 @@ jobs:
     runs-on: windows-latest
     steps:
     - name: 1. 检出最新优化代码
-      uses: uses/checkout@v4
-      with:
-        repository: ${{ github.repository }}
+      uses: actions/checkout@v4
 
     - name: 2. 准备 Python 环境
       uses: actions/setup-python@v5
