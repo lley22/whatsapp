@@ -3,14 +3,14 @@ import os
 import zipfile
 import shutil
 import tkinter as tk
-from tkinter import ttk, filedialog, messagebox
+from tkinter import ttk, messagebox
 import re
 
 class WhatsAppManagerApp:
     def __init__(self, root):
         self.root = root
         self.root.title("WhatsApp 备份环境管理工具")
-        self.root.geometry("600x420")
+        self.root.geometry("600x400")
         
         # 内置固定的便携版浏览器地址
         self.chrome_exe_path = r"C:\Users\Administrator\Desktop\GoogleChromePortable\GoogleChromePortable.exe"
@@ -19,58 +19,63 @@ class WhatsAppManagerApp:
         if not os.path.exists(self.cache_root):
             os.makedirs(self.cache_root)
             
-        # 提示语加黑加粗
+        # 提示语黑体加粗保持不变
         bold_font = ("Microsoft YaHei", 9, "bold")
-        self.tip_label = ttk.Label(root, text="提示：点击下方按钮或直接拖放多个文件，程序将自动解压状态。", font=bold_font, foreground="black")
-        self.tip_label.pack(anchor=tk.W, padx=10, pady=(10, 5))
+        self.tip_label = ttk.Label(root, text="提示：将 .bin 或 .zip 备份文件直接拖放到下方表格中。程序将自动解压状态。", font=bold_font, foreground="black")
+        self.tip_label.pack(anchor=tk.W, padx=10, pady=10)
         
-        # 批量选择大按钮
-        btn_frame = ttk.Frame(root, padding=5)
-        btn_frame.pack(fill=tk.X)
-        self.import_btn = ttk.Button(btn_frame, text="➕ 批量导入备份文件 (支持多选 / 可拖放)", command=self.batch_import_files)
-        self.import_btn.pack(anchor=tk.W, padx=10, pady=2)
+        # --- 🟢 下方核心数据表格区与滚动条容器 ---
+        table_frame = ttk.Frame(root)
+        table_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
         
-        # --- 数据表格区 ---
-        self.table = ttk.Treeview(root, columns=("path", "status", "action"), show="headings")
-        self.table.heading("path", text="备份文件路径")
+        # 🟢 优化：加入标准表格网格线样式（show="headings" 配合样式树开启 gridlines）
+        style = ttk.Style()
+        style.configure("Treeview", rowheight=25) # 提高行高，让横线更好看
+        style.map("Treeview", background=[('selected', '#107c41')]) # 选中变绿
+        
+        # “备份文件路径”正式改为“备份文件”
+        self.table = ttk.Treeview(table_frame, columns=("path", "status", "action"), show="headings")
+        self.table.heading("path", text="备份文件")
         self.table.heading("status", text="状态")
         self.table.heading("action", text="操作")
         
-        self.table.column("path", width=330, anchor=tk.W)
-        self.table.column("status", width=130, anchor=tk.CENTER)
-        self.table.column("action", width=120, anchor=tk.CENTER)
-        self.table.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+        # 🟢 开启显示类似表格的横线和竖线
+        self.table.configure(style="Treeview")
+        # 通过 tkinter 底层强制显示网格线
+        root.option_add('*Treeview.Gridlines', 'both') 
+        
+        # 🟢 优化：均分宽度。窗口宽度600，去掉两边边距后，各占30%位置（大约175像素）
+        self.table.column("path", width=175, minwidth=100, anchor=tk.W)
+        self.table.column("status", width=175, minwidth=100, anchor=tk.CENTER)
+        self.table.column("action", width=175, minwidth=100, anchor=tk.CENTER)
+        
+        # 🟢 优化：右侧无缝对接垂直滚动条，文件再多也可以完美下拉
+        scrollbar = ttk.Scrollbar(table_frame, orient=tk.VERTICAL, command=self.table.yview)
+        self.table.configure(yscrollcommand=scrollbar.set)
+        
+        # 布局表格和滚动条
+        self.table.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         
         self.table.bind("<Double-1>", self.on_table_double_click)
         self.table.bind("<Button-3>", self.show_context_menu)
         
         self.env_map = {}
         
-        # 启用双保险拖放拦截内核
-        self.setup_windows_drag_and_drop()
+        # 控件级精准拖拽拦截内核
+        self.setup_table_drag_and_drop()
 
-    def batch_import_files(self):
-        file_paths = filedialog.askopenfilenames(
-            title="选择 WhatsApp 备份文件", 
-            filetypes=[("Backup Files", "*.zip *.bin")]
-        )
-        if not file_paths:
-            return
-        for file_path in file_paths:
-            if os.path.isfile(file_path):
-                self.process_single_backup_file(file_path)
-
-    def setup_windows_drag_and_drop(self):
+    def setup_table_drag_and_drop(self):
         try:
             import ctypes
             from ctypes import windll
-            windll.shell32.DragAcceptFiles(self.root.winfo_id(), True)
-            self.root.tk.createcommand("::tk::mac::OpenDocument", self.handle_global_drop)
-            self.root.bind("<Drop>", self.handle_global_drop)
-        except:
-            pass
+            windll.shell32.DragAcceptFiles(self.table.winfo_id(), True)
+            self.root.tk.createcommand("::tk::mac::OpenDocument", self.handle_table_drop)
+            self.table.bind("<Drop>", self.handle_table_drop)
+        except Exception as e:
+            print(f"拖拽绑定失败: {e}")
 
-    def handle_global_drop(self, *args):
+    def handle_table_drop(self, *args):
         if not args: return
         raw_drop_str = " ".join([str(arg) for arg in args if arg])
         file_paths = []
@@ -85,11 +90,9 @@ class WhatsAppManagerApp:
             if os.path.isfile(file_path) and (file_path.lower().endswith('.zip') or file_path.lower().endswith('.bin')):
                 self.process_single_backup_file(file_path)
 
-    # 核心处理流程（全格式宽松模式）
     def process_single_backup_file(self, file_path):
         pure_filename = os.path.basename(file_path)
         
-        # 初始插入表格
         item_id = self.table.insert("", tk.END, values=(pure_filename, "正在解压...", "等待中"))
         self.root.update()
         
@@ -102,11 +105,11 @@ class WhatsAppManagerApp:
             with zipfile.ZipFile(file_path, 'r') as zip_ref:
                 zip_ref.extractall(target_env_dir)
             
-            # 🟢 不再强制检查内部特征目录，只要能够成功解压缩，一律放行通过！
+            # 宽松通关模式：保持显示纯文件名
             self.table.item(item_id, values=(pure_filename, "获取成功（已就绪）", "双击此行打开浏览器"))
             self.env_map[item_id] = target_env_dir
             
-        except Exception as e:
+        except:
             self.table.item(item_id, values=(pure_filename, "失败：解压损坏", "无"))
         
         self.root.update()
@@ -135,7 +138,6 @@ class WhatsAppManagerApp:
                 
             env_dir = self.env_map[item_id]
             
-            # 🟢 智能外壳深度适配算法：如果解压后里面只有孤零零的一个多余母文件夹，则自动往下探一级
             sub_dirs = [os.path.join(env_dir, d) for d in os.listdir(env_dir) if os.path.isdir(os.path.join(env_dir, d))]
             if len(sub_dirs) == 1 and len(os.listdir(env_dir)) == 1:
                 env_dir = sub_dirs[0]
