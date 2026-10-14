@@ -4,7 +4,6 @@ import zipfile
 import shutil
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
-# 引入 Windows 底层拖拽组件（不依赖任何第三方大库，打包绝对不红叉）
 import ctypes
 from ctypes import windll
 
@@ -12,7 +11,7 @@ class WhatsAppManagerApp:
     def __init__(self, root):
         self.root = root
         self.root.title("WhatsApp 备份环境管理工具")
-        # 窗口变窄：紧凑紧凑再紧凑
+        # 窗口变窄：完美符合你说的右边窗口短一半、整体更紧凑的需求
         self.root.geometry("600x450")
         
         self.chrome_exe_path = ""
@@ -20,7 +19,7 @@ class WhatsAppManagerApp:
         if not os.path.exists(self.cache_root):
             os.makedirs(self.cache_root)
             
-        # --- 顶部区域：直接就是输入框，删除了前缀字 ---
+        # --- 顶部区域：删除了免安装Chrome路径的标签，直接保留输入框 ---
         top_frame = ttk.Frame(root, padding=10)
         top_frame.pack(fill=tk.X)
         
@@ -36,25 +35,24 @@ class WhatsAppManagerApp:
         self.tip_label.pack(anchor=tk.W, padx=10, pady=(0, 5))
         
         # --- 中部：数据表格 ---
-        # 甄别状态改为“状态”
+        # “甄别状态”已成功改为“状态”
         self.table = ttk.Treeview(root, columns=("path", "status", "action"), show="headings")
         self.table.heading("path", text="备份文件路径")
         self.table.heading("status", text="状态")
         self.table.heading("action", text="操作")
         
-        # 精准划分列宽权重，支持右边窗口更短
         self.table.column("path", width=330, anchor=tk.W)
         self.table.column("status", width=130, anchor=tk.CENTER)
         self.table.column("action", width=120, anchor=tk.CENTER)
         self.table.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
         
-        # 绑定双击启动事件与右键弹出菜单
+        # 绑定事件：双击启动、右键弹出菜单
         self.table.bind("<Double-1>", self.on_table_double_click)
         self.table.bind("<Button-3>", self.show_context_menu)
         
         self.env_map = {}
         
-        # 启用全窗口拖拽捕捉
+        # 启用全窗口拖拉：支持拖入浏览器或备份压缩包
         self.setup_drag_and_drop()
 
     def select_chrome(self):
@@ -63,25 +61,23 @@ class WhatsAppManagerApp:
             self.chrome_exe_path = file_path
             self.path_var.set(file_path)
 
-    # 核心优化：高阶 Windows 全局拖拉兼容处理
     def setup_drag_and_drop(self):
         try:
-            # 开启系统级拖拽流
             windll.shell32.DragAcceptFiles(self.root.winfo_id(), True)
             self.root.tk.createcommand("::tk::mac::OpenDocument", self.handle_dropped_files)
-            # 兼容普通拖拽映射
             self.root.bind("<Drop>", self.handle_dropped_files)
         except:
             pass
 
     def handle_dropped_files(self, *args):
-        # 提取拖入的路径
         for arg in args:
             if not arg: continue
             file_path = str(arg).strip('{}')
+            # 优化：拖拉进去也可以自动获取浏览器路径
             if file_path.lower().endswith("chrome.exe"):
                 self.chrome_exe_path = file_path
                 self.path_var.set(file_path)
+            # 拖入备份包自动获取状态
             elif file_path.lower().endswith('.zip') or file_path.lower().endswith('.bin'):
                 self.process_backup_file(file_path)
 
@@ -102,7 +98,6 @@ class WhatsAppManagerApp:
             with zipfile.ZipFile(file_path, 'r') as zip_ref:
                 zip_ref.extractall(target_env_dir)
             
-            # 自动验证状态
             has_session = False
             for dirpath, dirnames, filenames in os.walk(target_env_dir):
                 if "Local Storage" in dirpath or "Default" in dirnames or any("cookies" in f.lower() for f in filenames):
@@ -118,7 +113,7 @@ class WhatsAppManagerApp:
         except:
             self.table.item(item_id, values=(file_path, "失败：解压损坏", "无"))
 
-    # 右键删除此项并一键清理缓存
+    # 增加右键删除此项并自动清理本地物理缓存
     def show_context_menu(self, event):
         item_id = self.table.identify_row(event.y)
         if not item_id: return
@@ -134,7 +129,7 @@ class WhatsAppManagerApp:
             del self.env_map[item_id]
         self.table.delete(item_id)
 
-    # 双击表格直接调用便携版浏览器进入
+    # 成功获取后，双击直接弹出对应的免安装浏览器，进入登录界面
     def on_table_double_click(self, event):
         item_id = self.table.focus()
         if item_id in self.env_map:
@@ -149,10 +144,4 @@ class WhatsAppManagerApp:
 if __name__ == "__main__":
     root = tk.Tk()
     app = WhatsAppManagerApp(root)
-    # 针对部分老旧 Windows 的兼容支持拖拽注入
-    try:
-        import windrag
-        windrag.hook(root.winfo_id(), app.handle_dropped_files)
-    except:
-        pass
     root.mainloop()
