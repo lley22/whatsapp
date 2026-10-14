@@ -1,5 +1,7 @@
 import sys
 import os
+import re
+import urllib.parse
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import core  # 引入动力车间
@@ -10,16 +12,16 @@ class WhatsAppBackupApp:
         self.root.title("导入打包备份 WhatsApp")
         self.root.geometry("850x420")
         
-        # 提示文本保持一致
+        # 提示文本与参考图保持高度黑色加粗一致
         bold_font = ("Microsoft YaHei", 9, "bold")
-        self.tip_label = ttk.Label(root, text="说明：点击左侧按钮可批量导入多个备份。左键点击文件可刷新右侧子页面数据。", font=bold_font, foreground="black")
+        self.tip_label = ttk.Label(root, text="将 .bin（或 .zip）打包文件拖放到本窗口，选中后点执行自动解压并登录。", font=bold_font, foreground="black")
         self.tip_label.pack(anchor=tk.W, padx=15, pady=10)
         
         # 左右分屏联动布局：确保四栏各占完美的 25% 比例位置
         main_frame = ttk.Frame(root)
         main_frame.pack(fill=tk.BOTH, expand=True, padx=15, pady=(0, 15))
         
-        # 1. 左侧：文件父页面展区 (均分 25% 宽度左右)
+        # 1. 左侧：文件父栏目展区 (等宽占 25% 宽度比例)
         left_frame = ttk.Frame(main_frame, width=220)
         left_frame.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 5))
         left_frame.pack_propagate(False)
@@ -27,15 +29,15 @@ class WhatsAppBackupApp:
         lbl_file = tk.Label(left_frame, text="文件", font=bold_font, bd=1, relief=tk.RAISED, bg="#eaeaea", height=2)
         lbl_file.pack(fill=tk.X)
         
-        # 🟢 终极新交互：新增批量多选导入大按钮，100% 拒绝任何系统级权限拖拽失灵！
-        self.btn_import = tk.Button(left_frame, text="➕ 批量导入备份 (支持多选)", font=("Microsoft YaHei", 9, "bold"), bg="#107c41", fg="white", activebackground="#0e6b38", activeforeground="white", bd=0, height=2, cursor="hand2", command=self.batch_import_files)
+        # 导入按钮双保险
+        self.btn_import = tk.Button(left_frame, text="➕ 批量选择导入 (支持多选)", font=("Microsoft YaHei", 9, "bold"), bg="#107c41", fg="white", activebackground="#0e6b38", activeforeground="white", bd=0, height=2, cursor="hand2", command=self.batch_import_files)
         self.btn_import.pack(fill=tk.X, pady=(2, 2))
         
-        # 左侧文件列表框
+        # 左侧文件单列网格框
         self.left_table = tk.Listbox(left_frame, font=("Microsoft YaHei", 10), bd=1, relief=tk.SOLID, highlightthickness=0, selectbackground="#107c41")
         self.left_table.pack(fill=tk.BOTH, expand=True)
         
-        # 2. 右侧：数据、状态、操作联合子页面展区 (占 75% 宽度，各占 25%)
+        # 2. 右侧：数据、状态、操作联合展区 (各栏目占 25% 的等宽比例位置)
         right_frame = ttk.Frame(main_frame)
         right_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
         
@@ -51,7 +53,7 @@ class WhatsAppBackupApp:
         
         ttk.Label(header_right, text="").pack(pady=15) # 预留表头高度
         
-        # 右侧可下拉滑动区域容器
+        # 右侧子页面滑动内容面板
         self.canvas_frame = ttk.Frame(right_frame)
         self.canvas_frame.pack(fill=tk.BOTH, expand=True, pady=(2, 0))
         
@@ -66,14 +68,13 @@ class WhatsAppBackupApp:
         self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         self.scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         
-        # 联动信号注册
+        # 联动信号与精准鼠标事件绑定
         self.left_table.bind("<<ListboxSelect>>", self.on_left_item_clicked)
-        # 同时保留底层右键菜单（双保险交互）
         self.left_table.bind("<Button-3>", self.show_left_context_menu)
         
         self.archive_data_map = {}
         
-        # 依然在最底层保留拖拽流作为双保险辅助
+        # 激活高级文件拖放流
         try:
             import ctypes
             from ctypes import windll
@@ -83,40 +84,48 @@ class WhatsAppBackupApp:
         except:
             pass
 
-    # 🟢 核心功能：点击弹出窗口，支持按住 Ctrl 批量疯狂选择无数个中文/字母/数字的备份包！
     def batch_import_files(self):
         file_paths = filedialog.askopenfilenames(
-            title="选择 WhatsApp 备份文件 (可按住Ctrl键多选)", 
+            title="选择 WhatsApp 备份文件", 
             filetypes=[("Backup Files", "*.zip *.bin")]
         )
-        if not file_paths:
-            return
+        if not file_paths: return
         for file_path in file_paths:
-            if os.path.isfile(file_path):
-                self.process_single_file(file_path)
+            if os.path.isfile(file_path): self.process_single_file(file_path)
 
+    # 🟢 核心修复：彻底废除容易切断带空格中文包名的 .split()，改用原生大括号边界安全解析提取算法
     def handle_global_drop(self, *args):
         if not args: return
-        import re
+        
+        # 将传入的数据转化为包含全部完整空格的原始物理长字符串
         raw_drop_str = " ".join([str(arg) for arg in args if arg])
+        
         file_paths = []
+        # 利用正则表达式，完美捕捉被 Windows 系统用大括号 {} 包裹起来的含空格/中文的绝对完整路径
         if "{" in raw_drop_str:
             file_paths = re.findall(r'\{([^}]+)\}', raw_drop_str)
+            # 过滤掉大括号后，提取出剩下没有空格的干净路径
             remain_str = re.sub(r'\{[^}]+\}', '', raw_drop_str)
             file_paths.extend([p.strip() for p in remain_str.split() if p.strip()])
         else:
-            file_paths = [p.strip() for p in raw_drop_str.split() if p.strip()]
+            # 针对没有空格的路径，使用安全的系统原生多参数流逐个提取，绝不发生字符串截断
+            file_paths = [str(arg).strip('{} ') for arg in args if arg]
 
+        # 循环依次处理拉入的每一个包文件
         for file_path in file_paths:
+            # 安全解码可能存在的 URL 网页转义字符
+            try:
+                file_path = urllib.parse.unquote(file_path)
+            except:
+                pass
             if os.path.isfile(file_path) and (file_path.lower().endswith('.zip') or file_path.lower().endswith('.bin')):
                 self.process_single_file(file_path)
 
-    # 统一单文件处理解析流
     def process_single_file(self, file_path):
         row = self.left_table.size()
         res = core.analyze_zip(file_path, row)
         if res:
-            # 完美写入第一栏：展现纯文件名
+            # 🟢 文件一栏：不论包名叫中文、数字、字母还是带大片空格，100% 完美完整展现包名本身
             self.left_table.insert(tk.END, res["pure_name"])
             self.archive_data_map[row] = res
             
@@ -132,7 +141,6 @@ class WhatsAppBackupApp:
         if clicked_row in self.archive_data_map:
             self.refresh_right_panel(self.archive_data_map[clicked_row])
 
-    # 渲染右侧三列子页面（带精美表格横竖线划分）
     def refresh_right_panel(self, res):
         for widget in self.scrollable_frame.winfo_children():
             widget.destroy()
@@ -147,12 +155,12 @@ class WhatsAppBackupApp:
             lbl_name = tk.Label(row_frame, text=pf["name"], anchor=tk.CENTER, font=("Microsoft YaHei", 9), bg="white", bd=1, relief=tk.SOLID)
             lbl_name.place(relx=0.0, rely=0.0, relwidth=0.33, relheight=1.0)
             
-            # 状态列 (绿色的“成功”或 红色的“失败”)
+            # 状态列 (干净的“成功”或“失败”)
             color = "darkgreen" if pf["valid"] else "red"
             lbl_status = tk.Label(row_frame, text=pf["status"], anchor=tk.CENTER, font=("Microsoft YaHei", 9, "bold"), bg="white", fg=color, bd=1, relief=tk.SOLID)
             lbl_status.place(relx=0.33, rely=0.0, relwidth=0.33, relheight=1.0)
             
-            # 操作列 (成功状态完美亮起 绿色的 进入 按钮)
+            # 操作列 (进入按钮)
             action_cell = tk.Frame(row_frame, bg="white", bd=1, relief=tk.SOLID)
             action_cell.place(relx=0.66, rely=0.0, relwidth=0.34, relheight=1.0)
             
@@ -163,7 +171,7 @@ class WhatsAppBackupApp:
                 lbl_none = tk.Label(action_cell, text="无", font=("Microsoft YaHei", 9), bg="white", fg="gray")
                 lbl_none.pack(expand=True)
 
-    # 🟢 物理删除按键与右键双保险：死锁在【文件一栏】上生效
+    # 🟢 联动修复：精准在【文件栏】行上绑定并弹现右键删除菜单
     def show_left_context_menu(self, event):
         index = self.left_table.nearest(event.y)
         if index < 0 or index >= self.left_table.size(): return
@@ -184,7 +192,7 @@ class WhatsAppBackupApp:
         for widget in self.scrollable_frame.winfo_children():
             widget.destroy()
             
-        # 重整内存轨道关系
+        # 重整内存轨道映射
         new_map = {}
         for idx in range(self.left_table.size()):
             for old_k, old_v in self.archive_data_map.items():
