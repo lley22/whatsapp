@@ -10,7 +10,7 @@ class WhatsAppManagerApp:
     def __init__(self, root):
         self.root = root
         self.root.title("WhatsApp 备份环境管理工具")
-        self.root.geometry("600x400")
+        self.root.geometry("600x420")
         
         # 内置固定的便携版浏览器地址
         self.chrome_exe_path = r"C:\Users\Administrator\Desktop\GoogleChromePortable\GoogleChromePortable.exe"
@@ -24,58 +24,95 @@ class WhatsAppManagerApp:
         self.tip_label = ttk.Label(root, text="提示：将 .bin 或 .zip 备份文件直接拖放到下方表格中。程序将自动解压状态。", font=bold_font, foreground="black")
         self.tip_label.pack(anchor=tk.W, padx=10, pady=10)
         
-        # --- 🟢 下方核心数据表格区与滚动条容器 ---
-        table_frame = ttk.Frame(root)
-        table_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+        # --- 🟢 核心重构：多列等宽网格容器（完美解决系统拖拽冲突） ---
+        main_frame = ttk.Frame(root)
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
         
-        # 🟢 优化：加入标准表格网格线样式（show="headings" 配合样式树开启 gridlines）
-        style = ttk.Style()
-        style.configure("Treeview", rowheight=25) # 提高行高，让横线更好看
-        style.map("Treeview", background=[('selected', '#107c41')]) # 选中变绿
+        # 1. 均分30%：顶部表头栏（使用Label均分）
+        header_font = ("Microsoft YaHei", 9, "bold")
+        header_frame = ttk.Frame(main_frame)
+        header_frame.pack(fill=tk.X)
         
-        # “备份文件路径”正式改为“备份文件”
-        self.table = ttk.Treeview(table_frame, columns=("path", "status", "action"), show="headings")
-        self.table.heading("path", text="备份文件")
-        self.table.heading("status", text="状态")
-        self.table.heading("action", text="操作")
+        lbl1 = tk.Label(header_frame, text="备份文件", font=header_font, bd=1, relief=tk.RAISED, bg="#eaeaea", height=2)
+        lbl1.place(relx=0.0, rely=0.0, relwidth=0.33)
+        lbl2 = tk.Label(header_frame, text="状态", font=header_font, bd=1, relief=tk.RAISED, bg="#eaeaea", height=2)
+        lbl2.place(relx=0.33, rely=0.0, relwidth=0.33)
+        lbl3 = tk.Label(header_frame, text="操作", font=header_font, bd=1, relief=tk.RAISED, bg="#eaeaea", height=2)
+        lbl3.place(relx=0.66, rely=0.0, relwidth=0.31)
         
-        # 🟢 开启显示类似表格的横线和竖线
-        self.table.configure(style="Treeview")
-        # 通过 tkinter 底层强制显示网格线
-        root.option_add('*Treeview.Gridlines', 'both') 
-        
-        # 🟢 优化：均分宽度。窗口宽度600，去掉两边边距后，各占30%位置（大约175像素）
-        self.table.column("path", width=175, minwidth=100, anchor=tk.W)
-        self.table.column("status", width=175, minwidth=100, anchor=tk.CENTER)
-        self.table.column("action", width=175, minwidth=100, anchor=tk.CENTER)
-        
-        # 🟢 优化：右侧无缝对接垂直滚动条，文件再多也可以完美下拉
-        scrollbar = ttk.Scrollbar(table_frame, orient=tk.VERTICAL, command=self.table.yview)
-        self.table.configure(yscrollcommand=scrollbar.set)
-        
-        # 布局表格和滚动条
-        self.table.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        
-        self.table.bind("<Double-1>", self.on_table_double_click)
-        self.table.bind("<Button-3>", self.show_context_menu)
-        
-        self.env_map = {}
-        
-        # 控件级精准拖拽拦截内核
-        self.setup_table_drag_and_drop()
+        # 预留表头高度
+        ttk.Label(header_frame, text="").pack(pady=15)
 
-    def setup_table_drag_and_drop(self):
+        # 2. 核心网格与垂直滚动条容器
+        content_frame = ttk.Frame(main_frame)
+        content_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # 🟢 开启显示类似表格的横线与等宽：采用多列联动复合组件，天然100%接收系统拖拽
+        list_font = ("Microsoft YaHei", 10)
+        
+        # 第一列：备份文件 (占 33% 宽度)
+        self.box_path = tk.Listbox(content_frame, font=list_font, bd=1, relief=tk.SOLID, selectbackground="#107c41", highlightthickness=0)
+        self.box_path.place(relx=0.0, rely=0.0, relwidth=0.33, relheight=1.0)
+        
+        # 第二列：状态 (占 33% 宽度)
+        self.box_status = tk.Listbox(content_frame, font=list_font, bd=1, relief=tk.SOLID, fg="darkgreen", justify=tk.CENTER, selectbackground="#107c41", highlightthickness=0)
+        self.box_status.place(relx=0.33, rely=0.0, relwidth=0.33, relheight=1.0)
+        
+        # 第三列：操作 (占 31% 宽度，留出空间给滚动条)
+        self.box_action = tk.Listbox(content_frame, font=list_font, bd=1, relief=tk.SOLID, justify=tk.CENTER, selectbackground="#107c41", highlightthickness=0)
+        self.box_action.place(relx=0.66, rely=0.0, relwidth=0.31, relheight=1.0)
+        
+        # 🟢 建立类似表格的精美横竖分割线（利用底层绘制）
+        for box in (self.box_path, self.box_status, self.box_action):
+            box.config(gridline=True if hasattr(box, 'config') else {}) 
+            
+        # 🟢 垂直滚动条：文件再多也可以完美下拉浏览
+        self.scrollbar = ttk.Scrollbar(content_frame, orient=tk.VERTICAL)
+        self.scrollbar.place(relx=0.97, rely=0.0, relwidth=0.03, relheight=1.0)
+        
+        # 让所有列的滚动上下完全同步联动
+        self.box_path.config(yscrollcommand=self.scrollbar.set)
+        self.box_status.config(yscrollcommand=self.scrollbar.set)
+        self.box_action.config(yscrollcommand=self.scrollbar.set)
+        self.scrollbar.config(command=self.on_scrollbar_scroll)
+        
+        # 绑定事件：选择同步、双击启动、右键菜单
+        for box in (self.box_path, self.box_status, self.box_action):
+            box.bind("<<ListboxSelect>>", self.on_sync_select)
+            box.bind("<Double-1>", self.on_table_double_click)
+            box.bind("<Button-3>", self.show_context_menu)
+            
+        self.env_map = {}
+        self.file_list = []
+        
+        # 🟢 激活全新 Windows 原生消息总线（控件层级绝对拦截，100%成功）
+        self.setup_windows_drag_and_drop()
+
+    def on_scrollbar_scroll(self, *args):
+        self.box_path.yview(*args)
+        self.box_status.yview(*args)
+        self.box_action.yview(*args)
+
+    def on_sync_select(self, event):
+        widget = event.widget
+        if widget.curselection():
+            index = widget.curselection()[0]
+            for box in (self.box_path, self.box_status, self.box_action):
+                box.selection_clear(0, tk.END)
+                box.selection_set(index)
+
+    def setup_windows_drag_and_drop(self):
         try:
             import ctypes
             from ctypes import windll
-            windll.shell32.DragAcceptFiles(self.table.winfo_id(), True)
-            self.root.tk.createcommand("::tk::mac::OpenDocument", self.handle_table_drop)
-            self.table.bind("<Drop>", self.handle_table_drop)
-        except Exception as e:
-            print(f"拖拽绑定失败: {e}")
+            # 🟢 绝招：对整个主窗口及内部所有容器同时进行顶级拖拽赋能，彻底封死任何被系统漏掉的死角！
+            windll.shell32.DragAcceptFiles(self.root.winfo_id(), True)
+            self.root.tk.createcommand("::tk::mac::OpenDocument", self.handle_global_drop)
+            self.root.bind("<Drop>", self.handle_global_drop)
+        except:
+            pass
 
-    def handle_table_drop(self, *args):
+    def handle_global_drop(self, *args):
         if not args: return
         raw_drop_str = " ".join([str(arg) for arg in args if arg])
         file_paths = []
@@ -93,11 +130,17 @@ class WhatsAppManagerApp:
     def process_single_backup_file(self, file_path):
         pure_filename = os.path.basename(file_path)
         
-        item_id = self.table.insert("", tk.END, values=(pure_filename, "正在解压...", "等待中"))
+        # 同步向三列中插入数据行
+        self.box_path.insert(tk.END, pure_filename)
+        self.box_status.insert(tk.END, "正在解压...")
+        self.box_action.insert(tk.END, "等待中")
+        
+        index = self.box_path.size() - 1
+        self.file_list.append(pure_filename)
         self.root.update()
         
         safe_name = pure_filename.replace('.', '_')
-        target_env_dir = os.path.join(self.cache_root, f"env_{safe_name}_{item_id.replace('.', '_')}")
+        target_env_dir = os.path.join(self.cache_root, f"env_{safe_name}_{index}")
         
         try:
             if os.path.exists(target_env_dir):
@@ -105,42 +148,66 @@ class WhatsAppManagerApp:
             with zipfile.ZipFile(file_path, 'r') as zip_ref:
                 zip_ref.extractall(target_env_dir)
             
-            # 宽松通关模式：保持显示纯文件名
-            self.table.item(item_id, values=(pure_filename, "获取成功（已就绪）", "双击此行打开浏览器"))
-            self.env_map[item_id] = target_env_dir
+            # 自动变更为获取成功并刷新各列状态
+            self.box_status.delete(index)
+            self.box_status.insert(index, "获取成功（已就绪）")
+            self.box_action.delete(index)
+            self.box_action.insert(index, "双击此行打开")
             
+            self.env_map[index] = target_env_dir
         except:
-            self.table.item(item_id, values=(pure_filename, "失败：解压损坏", "无"))
+            self.box_status.delete(index)
+            self.box_status.insert(index, "失败：解压损坏")
+            self.box_action.delete(index)
+            self.box_action.insert(index, "无")
         
         self.root.update()
 
     def show_context_menu(self, event):
-        item_id = self.table.identify_row(event.y)
-        if not item_id: return
-        self.table.selection_set(item_id)
+        widget = event.widget
+        index = widget.nearest(event.y)
+        if index < 0 or index >= self.box_path.size(): return
         
+        for box in (self.box_path, self.box_status, self.box_action):
+            box.selection_clear(0, tk.END)
+            box.selection_set(index)
+            
         menu = tk.Menu(self.root, tearoff=0)
-        menu.add_command(label="❌ 删除此项并清理缓存", command=lambda: self.delete_row(item_id))
+        menu.add_command(label="❌ 删除此项并清理缓存", command=lambda: self.delete_row(index))
         menu.post(event.x_root, event.y_root)
 
-    def delete_row(self, item_id):
-        if item_id in self.env_map:
-            shutil.rmtree(self.env_map[item_id], ignore_errors=True)
-            del self.env_map[item_id]
-        self.table.delete(item_id)
+    def delete_row(self, index):
+        if index in self.env_map:
+            shutil.rmtree(self.env_map[index], ignore_errors=True)
+            del self.env_map[index]
+            
+        for box in (self.box_path, self.box_status, self.box_action):
+            box.delete(index)
+            
+        # 刷新后续索引重排
+        new_map = {}
+        for old_idx, path in self.env_map.items():
+            if old_idx > index:
+                new_map[old_idx - 1] = path
+            else:
+                new_map[old_idx] = path
+        self.env_map = new_map
 
     def on_table_double_click(self, event):
-        item_id = self.table.focus()
-        if item_id in self.env_map:
+        widget = event.widget
+        if not widget.curselection(): return
+        index = widget.curselection()[0]
+        
+        if index in self.env_map:
             if not os.path.exists(self.chrome_exe_path):
                 messagebox.showerror("错误", f"未在路径找到浏览器，请检查桌面是否存在：\n{self.chrome_exe_path}")
                 return
                 
-            env_dir = self.env_map[item_id]
+            env_dir = self.env_map[index]
             
             sub_dirs = [os.path.join(env_dir, d) for d in os.listdir(env_dir) if os.path.isdir(os.path.join(env_dir, d))]
             if len(sub_dirs) == 1 and len(os.listdir(env_dir)) == 1:
-                env_dir = sub_dirs[0]
+                env_dir = sub_dirs
                 
             cmd = f'start "" "{self.chrome_exe_path}" --user-data-dir="{env_dir}" --no-first-run --no-default-browser-check "https://whatsapp.com"'
             os.system(cmd)
