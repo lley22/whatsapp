@@ -21,12 +21,13 @@ jobs:
         python -m pip install --upgrade pip
         pip install pyinstaller
 
-    - name: 4. 开始编译单文件 EXE
+    - name: 4. 开始编译单文件 EXE (指定名称为 WhatsApp)
       run: |
-        pyinstaller --onefile --noconsole --clean app.py
+        # 使用 -n 参数将生成的程序强制命名为 WhatsApp.exe
+        pyinstaller --onefile --noconsole --clean -n "WhatsApp" app.py
 
     - name: 5. 导出完美优化版 EXE 产物
       uses: actions/upload-artifact@v4
       with:
         name: WhatsApp免安装管理器_EXE_成品
-        path: dist/app.exe
+        path: dist/WhatsApp.exe
