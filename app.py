@@ -49,7 +49,6 @@ class WhatsAppManagerApp:
         # 启用双保险拖放拦截内核
         self.setup_windows_drag_and_drop()
 
-    # 按钮批量多选导入
     def batch_import_files(self):
         file_paths = filedialog.askopenfilenames(
             title="选择 WhatsApp 备份文件", 
@@ -86,12 +85,11 @@ class WhatsAppManagerApp:
             if os.path.isfile(file_path) and (file_path.lower().endswith('.zip') or file_path.lower().endswith('.bin')):
                 self.process_single_backup_file(file_path)
 
-    # 核心处理流程
+    # 核心处理流程（全格式宽松模式）
     def process_single_backup_file(self, file_path):
-        # 🟢 关键改动：使用 os.path.basename 剥离长路径，只提取纯粹的文件名（例如 xx.zip 或 xx.bin）
         pure_filename = os.path.basename(file_path)
         
-        # 表格第一列直接显示干净的文件名
+        # 初始插入表格
         item_id = self.table.insert("", tk.END, values=(pure_filename, "正在解压...", "等待中"))
         self.root.update()
         
@@ -104,24 +102,11 @@ class WhatsAppManagerApp:
             with zipfile.ZipFile(file_path, 'r') as zip_ref:
                 zip_ref.extractall(target_env_dir)
             
-            # 三层深度特征比对甄别
-            has_session = False
-            for dirpath, dirnames, filenames in os.walk(target_env_dir):
-                if "Local Storage" in dirpath or "Default" in dirnames:
-                    has_session = True
-                    break
-                if any("cookies" in f.lower() or "manifest" in f.lower() or "lock" in f.lower() for f in filenames):
-                    has_session = True
-                    break
+            # 🟢 不再强制检查内部特征目录，只要能够成功解压缩，一律放行通过！
+            self.table.item(item_id, values=(pure_filename, "获取成功（已就绪）", "双击此行打开浏览器"))
+            self.env_map[item_id] = target_env_dir
             
-            if has_session:
-                # 🟢 获取成功后，保持第一列依然只显示干净的文件名，状态更新为就绪
-                self.table.item(item_id, values=(pure_filename, "获取成功（已就绪）", "双击此行打开浏览器"))
-                self.env_map[item_id] = target_env_dir
-            else:
-                self.table.item(item_id, values=(pure_filename, "失败：未检测到登录数据", "无"))
-                shutil.rmtree(target_env_dir, ignore_errors=True)
-        except:
+        except Exception as e:
             self.table.item(item_id, values=(pure_filename, "失败：解压损坏", "无"))
         
         self.root.update()
@@ -149,6 +134,12 @@ class WhatsAppManagerApp:
                 return
                 
             env_dir = self.env_map[item_id]
+            
+            # 🟢 智能外壳深度适配算法：如果解压后里面只有孤零零的一个多余母文件夹，则自动往下探一级
+            sub_dirs = [os.path.join(env_dir, d) for d in os.listdir(env_dir) if os.path.isdir(os.path.join(env_dir, d))]
+            if len(sub_dirs) == 1 and len(os.listdir(env_dir)) == 1:
+                env_dir = sub_dirs[0]
+                
             cmd = f'start "" "{self.chrome_exe_path}" --user-data-dir="{env_dir}" --no-first-run --no-default-browser-check "https://whatsapp.com"'
             os.system(cmd)
 
