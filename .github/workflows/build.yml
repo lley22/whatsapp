@@ -21,9 +21,11 @@ jobs:
         python -m pip install --upgrade pip
         pip install PySide6 pyinstaller
 
-    - name: 4. 开始编译单文件 EXE
+    - name: 4. 开始编译单文件 EXE (强制UTF8兼容模式)
+      shell: cmd
       run: |
-        pyinstaller --onefile --noconsole app.py
+        chcp 65001
+        pyinstaller --onefile --noconsole --clean app.py
 
     - name: 5. 导出成品下载文件
       uses: actions/upload-artifact@v4
