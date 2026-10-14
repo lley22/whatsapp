@@ -25,20 +25,39 @@ def copy_contents(source_dir, target_dir):
 
 def analyze_zip(file_path, archive_id):
     init_cache()
+    # 🟢 完美支持：提取纯文件名本身（支持中文、数字、字母）
     pure_name = os.path.basename(file_path)
-    temp_dir = os.path.join(CACHE_ROOT, f"env_{pure_name.replace('.', '_')}_{archive_id}")
+    
+    # 为了防止中文路径引发系统字符集冲突，在本地文件夹命名时使用安全的 temp_id
+    temp_dir = os.path.join(CACHE_ROOT, f"env_archive_{archive_id}")
     
     try:
         if os.path.exists(temp_dir): shutil.rmtree(temp_dir, ignore_errors=True)
-        with zipfile.ZipFile(file_path, 'r') as z: z.extractall(temp_dir)
         
+        # 🟢 核心优化：自适应编码逻辑，完美解决中文命名的压缩包解压乱码或失败的硬伤
+        try:
+            with zipfile.ZipFile(file_path, 'r') as z:
+                z.extractall(temp_dir)
+        except:
+            # 如果默认编码失败，强制使用 CP936(GBK) 编码兼容老式中文压缩包
+            with zipfile.ZipFile(file_path, 'r') as z:
+                for member in z.infolist():
+                    try:
+                        member.filename = member.filename.encode('cp437').decode('gbk')
+                    except:
+                        pass
+                    z.extract(member, temp_dir)
+        
+        # 递归扫描所有的 Profile 目录
+        found_profiles = []
         valid_names = {"default"}
         for i in range(1, 101): valid_names.add(f"profile {i}")
         
-        found_profiles = []
         for dirpath, _, filenames in os.walk(temp_dir):
-            if os.path.basename(dirpath).lower() in valid_names:
+            folder_name = os.path.basename(dirpath).lower()
+            if folder_name in valid_names or "profile" in folder_name:
                 found_profiles.append(dirpath)
+                
         if not found_profiles: found_profiles.append(temp_dir)
         
         profile_list = []
@@ -59,9 +78,11 @@ def analyze_zip(file_path, archive_id):
                             except: pass
                 if is_valid: break
             
+            # 🟢 严格对应：状态字样只显示“成功”或“失败”
             profile_list.append({
-                "name": name, "path": p_path,
-                "status": "已导入打开" if is_valid else "失败：未甄别到登录数据",
+                "name": name, 
+                "path": p_path,
+                "status": "成功" if is_valid else "失败",
                 "valid": is_valid
             })
         return {"profiles": profile_list, "temp_dir": temp_dir, "pure_name": pure_name}
