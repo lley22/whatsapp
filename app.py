@@ -9,6 +9,7 @@ import core  # 引入动力车间
 class WhatsAppBackupApp(QMainWindow):
     def __init__(self):
         super().__init__()
+        # 窗口标题完美保持不变
         self.setWindowTitle("导入打包备份 WhatsApp")
         self.resize(850, 420)
         self.setAcceptDrops(True)
@@ -22,11 +23,11 @@ class WhatsAppBackupApp(QMainWindow):
         self.tip_label.setStyleSheet("color: #000000; font-family: 'Microsoft YaHei'; font-size: 13px; padding-bottom: 5px;")
         main_layout.addWidget(self.tip_label)
         
-        # 左右分屏联动布局：确保四栏各占完美的 25% 比例位置
+        # 左右分屏联动布局：四栏格子线分明，横向完美均分 25% 比例
         tables_layout = QHBoxLayout()
         tables_layout.setSpacing(5)
         
-        # 1. 左侧表格：文件栏 (占整体 25% 宽度左右)
+        # 1. 左侧表格：文件栏 (占整体宽度的 25% 左右)
         self.left_table = QTableWidget(0, 1)
         self.left_table.setHorizontalHeaderLabels(["文件"])
         self.left_table.setShowGrid(True)
@@ -34,7 +35,7 @@ class WhatsAppBackupApp(QMainWindow):
         self.left_table.horizontalHeader().setStyleSheet("QHeaderView::section { background-color: #eaeaea; font-weight: bold; }")
         self.left_table.setFixedWidth(210) 
         
-        # 2. 右侧表格：数据、状态、操作 (各占25%等宽比例)
+        # 2. 右侧表格：数据、状态、操作联合子展区 (各栏目占 25% 的等宽比例位置)
         self.right_table = QTableWidget(0, 3)
         self.right_table.setHorizontalHeaderLabels(["数据", "状态", "操作"])
         self.right_table.setShowGrid(True)
@@ -46,10 +47,10 @@ class WhatsAppBackupApp(QMainWindow):
         tables_layout.addWidget(self.right_table)
         main_layout.addLayout(tables_layout)
         
-        # 注册左键联动刷新信号
+        # 🟢 联动核心：左键点击左侧行，触发右侧子页面刷新
         self.left_table.itemClicked.connect(self.on_left_item_clicked)
         
-        # 🟢 严格锁定：右键删除菜单只在左侧【文件】这一栏生效
+        # 🟢 严格限定：右键删除菜单只在左侧【文件】这一栏生效
         self.left_table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.left_table.customContextMenuRequested.connect(self.show_left_context_menu)
         
@@ -59,6 +60,7 @@ class WhatsAppBackupApp(QMainWindow):
         if event.mimeData().hasUrls(): event.acceptProposedAction()
 
     def dropEvent(self, event):
+        # 支持同时圈选、批量将多个包拉入下面窗口中排队处理
         for url in event.mimeData().urls():
             file_path = url.toLocalFile()
             if file_path.lower().endswith(('.zip', '.bin')):
@@ -66,14 +68,17 @@ class WhatsAppBackupApp(QMainWindow):
                 res = core.analyze_zip(file_path, row)
                 if res:
                     self.left_table.insertRow(row)
-                    # 🟢 完美渲染带有中文、数字、字母的压缩包名字
+                    # 写入第一栏：保持展现纯文件名
                     item = QTableWidgetItem(res["pure_name"])
                     item.setFlags(item.flags() & ~Qt.ItemIsEditable)
                     self.left_table.setItem(row, 0, item)
                     self.archive_data_map[row] = res
+                    
+                    # 自动高亮选中当前拉入的行并联动刷新右侧
                     self.left_table.setCurrentItem(item)
                     self.on_left_item_clicked(item)
 
+    # 🟢 左键联动刷新右侧子页面数据
     def on_left_item_clicked(self, item):
         clicked_row = item.row()
         if clicked_row not in self.archive_data_map: return
@@ -83,17 +88,19 @@ class WhatsAppBackupApp(QMainWindow):
         for idx, pf in enumerate(profiles):
             self.right_table.insertRow(idx)
             
+            # 第二栏 数据 (显示 Default 或 Profile 1-100 有多少显示多少)
             data_item = QTableWidgetItem(pf["name"])
             data_item.setFlags(data_item.flags() & ~Qt.ItemIsEditable)
             self.right_table.setItem(idx, 0, data_item)
             
+            # 第三栏 状态 (只显示“成功”或“失败”)
             status_item = QTableWidgetItem(pf["status"])
             status_item.setTextAlignment(Qt.AlignCenter)
             status_item.setFlags(status_item.flags() & ~Qt.ItemIsEditable)
-            # 🟢 状态严格显示：成功（绿字）或 失败（红字）
             status_item.setForeground(Qt.darkGreen if pf["valid"] else Qt.red)
             self.right_table.setItem(idx, 1, status_item)
             
+            # 第四栏 操作 (显示进入按钮)
             if pf["valid"]:
                 btn = QPushButton("进入")
                 btn.setStyleSheet("padding: 2px 5px; font-weight: bold; background-color: #107c41; color: white;")
@@ -106,7 +113,7 @@ class WhatsAppBackupApp(QMainWindow):
                 fail_item.setForeground(Qt.gray)
                 self.right_table.setItem(idx, 2, fail_item)
 
-    # 🟢 严格限定：右键菜单绑定在【文件栏】
+    # 🟢 右键菜单只绑定在【文件】这一栏生效
     def show_left_context_menu(self, pos: QPoint):
         item = self.left_table.itemAt(pos)
         if item is None: return
@@ -118,16 +125,16 @@ class WhatsAppBackupApp(QMainWindow):
         menu.addAction(delete_action)
         menu.exec(self.left_table.viewport().mapToGlobal(pos))
 
-    # 一键物理清理本地缓存
+    # 一键删除整包，并在后台同步进行临时缓存物理销毁
     def delete_archive_package(self, row):
         if row in self.archive_data_map:
             shutil.rmtree(self.archive_data_map[row]["temp_dir"], ignore_errors=True)
             del self.archive_data_map[row]
             
         self.left_table.removeRow(row)
-        self.right_table.setRowCount(0) # 实时同步清空右侧子页面
+        self.right_table.setRowCount(0) # 同步将右边区域数据清空
         
-        # 对内存索引重新进行对轨排列
+        # 重排内存里的轨道索引关系
         new_map = {}
         for idx in range(self.left_table.rowCount()):
             for old_k, old_v in self.archive_data_map.items():
