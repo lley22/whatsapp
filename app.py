@@ -1,8 +1,7 @@
 import sys
 import os
-import re
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, filedialog, messagebox
 import core  # 引入动力车间
 
 class WhatsAppBackupApp:
@@ -13,26 +12,30 @@ class WhatsAppBackupApp:
         
         # 提示文本保持一致
         bold_font = ("Microsoft YaHei", 9, "bold")
-        self.tip_label = ttk.Label(root, text="将 .bin（或 .zip）打包文件拖放到本窗口，左键点击文件可刷新右侧子页面数据。", font=bold_font, foreground="black")
+        self.tip_label = ttk.Label(root, text="说明：点击左侧按钮可批量导入多个备份。左键点击文件可刷新右侧子页面数据。", font=bold_font, foreground="black")
         self.tip_label.pack(anchor=tk.W, padx=15, pady=10)
         
-        # 左右分屏联动布局
+        # 左右分屏联动布局：确保四栏各占完美的 25% 比例位置
         main_frame = ttk.Frame(root)
         main_frame.pack(fill=tk.BOTH, expand=True, padx=15, pady=(0, 15))
         
-        # 1. 左侧：文件栏表格区 (均分 25% 宽度左右)
-        left_frame = ttk.Frame(main_frame, width=210)
+        # 1. 左侧：文件父页面展区 (均分 25% 宽度左右)
+        left_frame = ttk.Frame(main_frame, width=220)
         left_frame.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 5))
         left_frame.pack_propagate(False)
         
         lbl_file = tk.Label(left_frame, text="文件", font=bold_font, bd=1, relief=tk.RAISED, bg="#eaeaea", height=2)
         lbl_file.pack(fill=tk.X)
         
-        # 使用天然完美支持系统级拖拽的底层 Listbox 容器
+        # 🟢 终极新交互：新增批量多选导入大按钮，100% 拒绝任何系统级权限拖拽失灵！
+        self.btn_import = tk.Button(left_frame, text="➕ 批量导入备份 (支持多选)", font=("Microsoft YaHei", 9, "bold"), bg="#107c41", fg="white", activebackground="#0e6b38", activeforeground="white", bd=0, height=2, cursor="hand2", command=self.batch_import_files)
+        self.btn_import.pack(fill=tk.X, pady=(2, 2))
+        
+        # 左侧文件列表框
         self.left_table = tk.Listbox(left_frame, font=("Microsoft YaHei", 10), bd=1, relief=tk.SOLID, highlightthickness=0, selectbackground="#107c41")
         self.left_table.pack(fill=tk.BOTH, expand=True)
         
-        # 2. 右侧：数据、状态、操作联合展区 (均分 75% 宽度，四栏各占 25%)
+        # 2. 右侧：数据、状态、操作联合子页面展区 (占 75% 宽度，各占 25%)
         right_frame = ttk.Frame(main_frame)
         right_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
         
@@ -46,9 +49,9 @@ class WhatsAppBackupApp:
         lbl_action = tk.Label(header_right, text="操作", font=bold_font, bd=1, relief=tk.RAISED, bg="#eaeaea", height=2)
         lbl_action.place(relx=0.66, rely=0.0, relwidth=0.34)
         
-        ttk.Label(header_right, text="").pack(pady=15) # 预留高度
+        ttk.Label(header_right, text="").pack(pady=15) # 预留表头高度
         
-        # 右侧子页面滚动容器
+        # 右侧可下拉滑动区域容器
         self.canvas_frame = ttk.Frame(right_frame)
         self.canvas_frame.pack(fill=tk.BOTH, expand=True, pady=(2, 0))
         
@@ -57,7 +60,7 @@ class WhatsAppBackupApp:
         
         self.scrollable_frame = ttk.Frame(self.canvas)
         self.scrollable_frame.bind("<Configure>", lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all")))
-        self.canvas.create_window((0, 0), window=self.scrollable_frame, anchor=tk.NW, width=600)
+        self.canvas.create_window((0, 0), window=self.scrollable_frame, anchor=tk.NW, width=590)
         self.canvas.configure(yscrollcommand=self.scrollbar.set)
         
         self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
@@ -65,33 +68,36 @@ class WhatsAppBackupApp:
         
         # 联动信号注册
         self.left_table.bind("<<ListboxSelect>>", self.on_left_item_clicked)
-        # 🟢 终极修复：使用最纯净的底层底层鼠标按钮事件拦截，100% 解决右键不生效的问题
+        # 同时保留底层右键菜单（双保险交互）
         self.left_table.bind("<Button-3>", self.show_left_context_menu)
         
         self.archive_data_map = {}
         
-        # 🟢 终极全防线：强制向系统注册接收拖拽，打破一切系统级管理员权限死锁
-        self.setup_force_drag_and_drop()
-
-    def setup_force_drag_and_drop(self):
+        # 依然在最底层保留拖拽流作为双保险辅助
         try:
             import ctypes
             from ctypes import windll
-            # 补丁A：强制允许低权限进程向高权限进程投递拖拽文件消息流 (解决UAC死锁)
-            try:
-                windll.user32.ChangeWindowMessageFilter(0x0049, 1) # WM_COPYGLOBALDATA
-                windll.user32.ChangeWindowMessageFilter(0x0233, 1) # WM_DROPFILES
-            except:
-                pass
-            # 补丁B：对全窗体及内部控件全面激活顶级通道
             windll.shell32.DragAcceptFiles(self.root.winfo_id(), True)
             self.root.tk.createcommand("::tk::mac::OpenDocument", self.handle_global_drop)
             self.root.bind("<Drop>", self.handle_global_drop)
         except:
             pass
 
+    # 🟢 核心功能：点击弹出窗口，支持按住 Ctrl 批量疯狂选择无数个中文/字母/数字的备份包！
+    def batch_import_files(self):
+        file_paths = filedialog.askopenfilenames(
+            title="选择 WhatsApp 备份文件 (可按住Ctrl键多选)", 
+            filetypes=[("Backup Files", "*.zip *.bin")]
+        )
+        if not file_paths:
+            return
+        for file_path in file_paths:
+            if os.path.isfile(file_path):
+                self.process_single_file(file_path)
+
     def handle_global_drop(self, *args):
         if not args: return
+        import re
         raw_drop_str = " ".join([str(arg) for arg in args if arg])
         file_paths = []
         if "{" in raw_drop_str:
@@ -101,19 +107,20 @@ class WhatsAppBackupApp:
         else:
             file_paths = [p.strip() for p in raw_drop_str.split() if p.strip()]
 
-        # 🟢 完美兼容：不管是中文、字母、纯数字，依次迭代无漏批量导入
         for file_path in file_paths:
             if os.path.isfile(file_path) and (file_path.lower().endswith('.zip') or file_path.lower().endswith('.bin')):
-                self.process_backup_file(file_path)
+                self.process_single_file(file_path)
 
-    def process_backup_file(self, file_path):
+    # 统一单文件处理解析流
+    def process_single_file(self, file_path):
         row = self.left_table.size()
         res = core.analyze_zip(file_path, row)
         if res:
+            # 完美写入第一栏：展现纯文件名
             self.left_table.insert(tk.END, res["pure_name"])
             self.archive_data_map[row] = res
             
-            # 自动高亮选择
+            # 自动高亮并联动刷新右侧
             self.left_table.selection_clear(0, tk.END)
             self.left_table.selection_set(row)
             self.left_table.activate(row)
@@ -125,9 +132,8 @@ class WhatsAppBackupApp:
         if clicked_row in self.archive_data_map:
             self.refresh_right_panel(self.archive_data_map[clicked_row])
 
-    # 刷新右侧子页面（带格子线样式拼装）
+    # 渲染右侧三列子页面（带精美表格横竖线划分）
     def refresh_right_panel(self, res):
-        # 清空右侧旧容器
         for widget in self.scrollable_frame.winfo_children():
             widget.destroy()
             
@@ -137,16 +143,16 @@ class WhatsAppBackupApp:
             row_frame.pack(fill=tk.X, expand=True)
             row_frame.pack_propagate(False)
             
-            # 数据栏 (均分 33%)
+            # 数据列
             lbl_name = tk.Label(row_frame, text=pf["name"], anchor=tk.CENTER, font=("Microsoft YaHei", 9), bg="white", bd=1, relief=tk.SOLID)
             lbl_name.place(relx=0.0, rely=0.0, relwidth=0.33, relheight=1.0)
             
-            # 状态栏 (只显示 成功 或 失败)
+            # 状态列 (绿色的“成功”或 红色的“失败”)
             color = "darkgreen" if pf["valid"] else "red"
             lbl_status = tk.Label(row_frame, text=pf["status"], anchor=tk.CENTER, font=("Microsoft YaHei", 9, "bold"), bg="white", fg=color, bd=1, relief=tk.SOLID)
             lbl_status.place(relx=0.33, rely=0.0, relwidth=0.33, relheight=1.0)
             
-            # 操作栏 (成功显示 进入 按钮)
+            # 操作列 (成功状态完美亮起 绿色的 进入 按钮)
             action_cell = tk.Frame(row_frame, bg="white", bd=1, relief=tk.SOLID)
             action_cell.place(relx=0.66, rely=0.0, relwidth=0.34, relheight=1.0)
             
@@ -157,7 +163,7 @@ class WhatsAppBackupApp:
                 lbl_none = tk.Label(action_cell, text="无", font=("Microsoft YaHei", 9), bg="white", fg="gray")
                 lbl_none.pack(expand=True)
 
-    # 🟢 严格限定：右键菜单精准在左侧【文件栏】生效
+    # 🟢 物理删除按键与右键双保险：死锁在【文件一栏】上生效
     def show_left_context_menu(self, event):
         index = self.left_table.nearest(event.y)
         if index < 0 or index >= self.left_table.size(): return
@@ -171,15 +177,14 @@ class WhatsAppBackupApp:
 
     def delete_archive_package(self, index):
         if index in self.archive_data_map:
-            shutil.rmtree(self.archive_data_map[index]["temp_dir"], ignore_errors=True)
+            core.shutil.rmtree(self.archive_data_map[index]["temp_dir"], ignore_errors=True)
             del self.archive_data_map[index]
             
         self.left_table.delete(index)
-        # 清空右侧子页面
         for widget in self.scrollable_frame.winfo_children():
             widget.destroy()
             
-        # 重排内存索引排列
+        # 重整内存轨道关系
         new_map = {}
         for idx in range(self.left_table.size()):
             for old_k, old_v in self.archive_data_map.items():
