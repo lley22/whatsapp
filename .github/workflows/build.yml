@@ -16,24 +16,16 @@ jobs:
       with:
         python-version: '3.10'
 
-    - name: 3. 预安装 Windows 必备系统组件
-      shell: pwsh
-      run: |
-        # 强制安装打包和运行所需的最新 C++ 运行库，防止云端虚拟机报错
-        winget install Microsoft.VC++2022Redist-x64 --silent --accept-source-agreements --accept-package-agreements
-
-    - name: 4. 安装所需打包依赖
+    - name: 3. 安装最精简打包工具
       run: |
         python -m pip install --upgrade pip
-        pip install PySide6 pyinstaller
+        pip install pyinstaller
 
-    - name: 5. 开始编译单文件 EXE
-      shell: cmd
+    - name: 4. 开始编译单文件 EXE
       run: |
-        chcp 65001
-        pyinstaller --onefile --noconsole --clean app.py
+        pyinstaller --onefile --noconsole app.py
 
-    - name: 6. 导出成品下载文件
+    - name: 5. 导出成品下载文件
       uses: actions/upload-artifact@v4
       with:
         name: WhatsApp免安装管理器_EXE_成品
