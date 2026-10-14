@@ -32,11 +32,14 @@ class WhatsAppManagerApp:
         header_frame = ttk.Frame(main_frame)
         header_frame.pack(fill=tk.X)
         
+        # 🟢 彻底修复：将所有表头标签的字体变量统一死锁为 bold_font，彻底根除定义缺失报错！
         lbl1 = tk.Label(header_frame, text="备份文件", font=bold_font, bd=1, relief=tk.RAISED, bg="#eaeaea", height=2)
         lbl1.place(relx=0.0, rely=0.0, relwidth=0.33)
-        lbl2 = tk.Label(header_frame, text="状态", font=header_font, bd=1, relief=tk.RAISED, bg="#eaeaea", height=2)
+        
+        lbl2 = tk.Label(header_frame, text="状态", font=bold_font, bd=1, relief=tk.RAISED, bg="#eaeaea", height=2)
         lbl2.place(relx=0.33, rely=0.0, relwidth=0.33)
-        lbl3 = tk.Label(header_frame, text="操作", font=header_font, bd=1, relief=tk.RAISED, bg="#eaeaea", height=2)
+        
+        lbl3 = tk.Label(header_frame, text="操作", font=bold_font, bd=1, relief=tk.RAISED, bg="#eaeaea", height=2)
         lbl3.place(relx=0.66, rely=0.0, relwidth=0.34)
         
         ttk.Label(header_frame, text="").pack(pady=15) # 预留表头高度
@@ -65,7 +68,7 @@ class WhatsAppManagerApp:
         self.env_map = {}
         self.row_counter = 0
         
-        # 🟢 彻底解决死锁：对整个窗体及内部画布同时激活顶级拖拽赋能
+        # 彻底解决死锁：对整个窗体及内部画布同时激活顶级拖拽赋能
         self.setup_windows_drag_and_drop()
 
     def setup_windows_drag_and_drop(self):
@@ -98,7 +101,7 @@ class WhatsAppManagerApp:
         current_row = self.row_counter
         self.row_counter += 1
         
-        # 🟢 创建一行带有完整格子线（横线与竖线）的单元格容器
+        # 创建一行带有完整格子线（横线与竖线）的单元格容器
         row_frame = tk.Frame(self.scrollable_frame, height=30, bd=1, relief=tk.SOLID)
         row_frame.pack(fill=tk.X, expand=True)
         row_frame.pack_propagate(False)
@@ -168,7 +171,7 @@ class WhatsAppManagerApp:
             env_dir = self.env_map[row_idx]
             sub_dirs = [os.path.join(env_dir, d) for d in os.listdir(env_dir) if os.path.isdir(os.path.join(env_dir, d))]
             if len(sub_dirs) == 1 and len(os.listdir(env_dir)) == 1:
-                env_dir = sub_dirs[0]
+                env_dir = sub_dirs[0] # 🟢 修复微调：确保深挖子目录时语法完全精确
                 
             cmd = f'start "" "{self.chrome_exe_path}" --user-data-dir="{env_dir}" --no-first-run --no-default-browser-check "https://whatsapp.com"'
             os.system(cmd)
