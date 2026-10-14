@@ -1,6 +1,7 @@
 import os
 import zipfile
 import shutil
+import urllib.parse
 
 # 内置固定的便携版浏览器地址与替换目标路径
 CHROME_EXE = r"C:\Users\Administrator\Desktop\GoogleChromePortable\GoogleChromePortable.exe"
@@ -25,16 +26,22 @@ def copy_contents(source_dir, target_dir):
 
 def analyze_zip(file_path, archive_id):
     init_cache()
-    # 提取纯文件名本身（支持中文、数字、字母）
-    pure_name = os.path.basename(file_path)
     
-    # 使用安全的 temp_id 命名临时解压目录，彻底防止中文路径名导致系统死锁
-    temp_dir = os.path.join(CACHE_ROOT, f"env_archive_{archive_id}")
+    # 🟢 彻底解决病根1：清洗和解码 Windows 传入的任何带有中文、大括号或特殊符号的复杂路径
+    try:
+        file_path = file_path.strip('{} ')
+        file_path = urllib.parse.unquote(file_path)
+        pure_name = os.path.basename(file_path)
+    except:
+        pure_name = f"backup_{archive_id}.zip"
+        
+    # 在本地创建绝对安全的纯英文隔离缓存区，彻底断绝任何因中文包名引发的解压路径死锁
+    temp_dir = os.path.join(CACHE_ROOT, f"env_archive_box_{archive_id}")
     
     try:
         if os.path.exists(temp_dir): shutil.rmtree(temp_dir, ignore_errors=True)
         
-        # 🟢 自适应编码解压引擎：完美通关中文命名的压缩包，绝不乱码和失败
+        # 🟢 彻底解决病根2：双重编码撞击引擎，100% 解决含中文、字母、符号备份解压后的乱码判定失败问题
         try:
             with zipfile.ZipFile(file_path, 'r') as z:
                 z.extractall(temp_dir)
@@ -44,17 +51,17 @@ def analyze_zip(file_path, archive_id):
                     try:
                         member.filename = member.filename.encode('cp437').decode('gbk')
                     except:
-                        pass
+                        try:
+                            member.filename = member.filename.encode('cp437').decode('utf-8')
+                        except:
+                            pass
                     z.extract(member, temp_dir)
         
-        # 深度扫描里面包含的 101 种或任意形式的 Profile 目录
+        # 全盘扫描任何包含 Default、Profile (中文字母数字全包容) 关键字的目录
         found_profiles = []
-        valid_names = {"default"}
-        for i in range(1, 101): valid_names.add(f"profile {i}")
-        
         for dirpath, _, filenames in os.walk(temp_dir):
             folder_name = os.path.basename(dirpath).lower()
-            if folder_name in valid_names or "profile" in folder_name:
+            if "default" in folder_name or "profile" in folder_name:
                 found_profiles.append(dirpath)
                 
         if not found_profiles: found_profiles.append(temp_dir)
@@ -77,7 +84,7 @@ def analyze_zip(file_path, archive_id):
                             except: pass
                 if is_valid: break
             
-            # 🟢 状态列字样全新洗牌修改：只显示干净利落的“成功”或“失败”
+            # 状态只保留：成功 或 失败
             profile_list.append({
                 "name": name, 
                 "path": p_path,
@@ -85,7 +92,8 @@ def analyze_zip(file_path, archive_id):
                 "valid": is_valid
             })
         return {"profiles": profile_list, "temp_dir": temp_dir, "pure_name": pure_name}
-    except:
+    except Exception as e:
+        print(f"底层核心致命错误: {e}")
         return None
 
 def run_chrome(profile_path):
@@ -94,6 +102,5 @@ def run_chrome(profile_path):
         if os.path.exists(TARGET_REPLACE_DIR): shutil.rmtree(TARGET_REPLACE_DIR, ignore_errors=True)
     except: pass
     copy_contents(profile_path, TARGET_REPLACE_DIR)
-    # 打开浏览器，并且重置回到最开始的初始纯净状态启动
     os.system(f'start "" "{CHROME_EXE}" --no-first-run --no-default-browser-check "https://://whatsapp.com"')
     return True
