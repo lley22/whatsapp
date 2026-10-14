@@ -4,7 +4,7 @@ import re
 import urllib.parse
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
-import core  # 引入动力车间
+import core  # 引入模块化分离后的动力车间
 
 class WhatsAppBackupApp:
     def __init__(self, root):
@@ -14,7 +14,7 @@ class WhatsAppBackupApp:
         
         # 提示文本与参考图保持高度黑色加粗一致
         bold_font = ("Microsoft YaHei", 9, "bold")
-        self.tip_label = ttk.Label(root, text="将 .bin（或 .zip）打包文件拖放到本窗口，选中后点执行自动解压并登录。", font=bold_font, foreground="black")
+        self.tip_label = ttk.Label(root, text="将 .bin（或 .zip）打包文件拖放到本窗口，选中后右侧子页面将自动展开各 Profile 登录状态。", font=bold_font, foreground="black")
         self.tip_label.pack(anchor=tk.W, padx=15, pady=10)
         
         # 左右分屏联动布局：确保四栏各占完美的 25% 比例位置
@@ -93,7 +93,7 @@ class WhatsAppBackupApp:
         for file_path in file_paths:
             if os.path.isfile(file_path): self.process_single_file(file_path)
 
-    # 🟢 核心修复：彻底废除容易切断带空格中文包名的 .split()，改用原生大括号边界安全解析提取算法
+    # 🟢 核心修复：彻底废除容易切断带空格中文包名的 .split()，改用大括号边界安全解析提取算法
     def handle_global_drop(self, *args):
         if not args: return
         
@@ -101,19 +101,15 @@ class WhatsAppBackupApp:
         raw_drop_str = " ".join([str(arg) for arg in args if arg])
         
         file_paths = []
-        # 利用正则表达式，完美捕捉被 Windows 系统用大括号 {} 包裹起来的含空格/中文的绝对完整路径
+        # 捕捉被 Windows 系统用大括号 {} 包裹起来的含空格/中文的绝对完整路径
         if "{" in raw_drop_str:
             file_paths = re.findall(r'\{([^}]+)\}', raw_drop_str)
-            # 过滤掉大括号后，提取出剩下没有空格的干净路径
             remain_str = re.sub(r'\{[^}]+\}', '', raw_drop_str)
             file_paths.extend([p.strip() for p in remain_str.split() if p.strip()])
         else:
-            # 针对没有空格的路径，使用安全的系统原生多参数流逐个提取，绝不发生字符串截断
             file_paths = [str(arg).strip('{} ') for arg in args if arg]
 
-        # 循环依次处理拉入的每一个包文件
         for file_path in file_paths:
-            # 安全解码可能存在的 URL 网页转义字符
             try:
                 file_path = urllib.parse.unquote(file_path)
             except:
@@ -125,7 +121,7 @@ class WhatsAppBackupApp:
         row = self.left_table.size()
         res = core.analyze_zip(file_path, row)
         if res:
-            # 🟢 文件一栏：不论包名叫中文、数字、字母还是带大片空格，100% 完美完整展现包名本身
+            # 文件一栏：不论包名叫中文、数字、字母还是带大片空格，100% 完美完整展现包名本身
             self.left_table.insert(tk.END, res["pure_name"])
             self.archive_data_map[row] = res
             
@@ -151,16 +147,16 @@ class WhatsAppBackupApp:
             row_frame.pack(fill=tk.X, expand=True)
             row_frame.pack_propagate(False)
             
-            # 数据列
+            # 第二栏 数据 (支持任意特殊字符、数字或中文 Profile 名字展示)
             lbl_name = tk.Label(row_frame, text=pf["name"], anchor=tk.CENTER, font=("Microsoft YaHei", 9), bg="white", bd=1, relief=tk.SOLID)
             lbl_name.place(relx=0.0, rely=0.0, relwidth=0.33, relheight=1.0)
             
-            # 状态列 (干净的“成功”或“失败”)
+            # 第三栏 状态 (干净的“成功”或“失败”)
             color = "darkgreen" if pf["valid"] else "red"
             lbl_status = tk.Label(row_frame, text=pf["status"], anchor=tk.CENTER, font=("Microsoft YaHei", 9, "bold"), bg="white", fg=color, bd=1, relief=tk.SOLID)
             lbl_status.place(relx=0.33, rely=0.0, relwidth=0.33, relheight=1.0)
             
-            # 操作列 (进入按钮)
+            # 第四栏 操作 (进入按钮)
             action_cell = tk.Frame(row_frame, bg="white", bd=1, relief=tk.SOLID)
             action_cell.place(relx=0.66, rely=0.0, relwidth=0.34, relheight=1.0)
             
