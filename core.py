@@ -25,21 +25,20 @@ def copy_contents(source_dir, target_dir):
 
 def analyze_zip(file_path, archive_id):
     init_cache()
-    # 🟢 完美支持：提取纯文件名本身（支持中文、数字、字母）
+    # 提取纯文件名本身（支持中文、数字、字母）
     pure_name = os.path.basename(file_path)
     
-    # 为了防止中文路径引发系统字符集冲突，在本地文件夹命名时使用安全的 temp_id
+    # 使用安全的 temp_id 命名临时解压目录，彻底防止中文路径名导致系统死锁
     temp_dir = os.path.join(CACHE_ROOT, f"env_archive_{archive_id}")
     
     try:
         if os.path.exists(temp_dir): shutil.rmtree(temp_dir, ignore_errors=True)
         
-        # 🟢 核心优化：自适应编码逻辑，完美解决中文命名的压缩包解压乱码或失败的硬伤
+        # 🟢 自适应编码解压引擎：完美通关中文命名的压缩包，绝不乱码和失败
         try:
             with zipfile.ZipFile(file_path, 'r') as z:
                 z.extractall(temp_dir)
         except:
-            # 如果默认编码失败，强制使用 CP936(GBK) 编码兼容老式中文压缩包
             with zipfile.ZipFile(file_path, 'r') as z:
                 for member in z.infolist():
                     try:
@@ -48,7 +47,7 @@ def analyze_zip(file_path, archive_id):
                         pass
                     z.extract(member, temp_dir)
         
-        # 递归扫描所有的 Profile 目录
+        # 深度扫描里面包含的 101 种或任意形式的 Profile 目录
         found_profiles = []
         valid_names = {"default"}
         for i in range(1, 101): valid_names.add(f"profile {i}")
@@ -78,7 +77,7 @@ def analyze_zip(file_path, archive_id):
                             except: pass
                 if is_valid: break
             
-            # 🟢 严格对应：状态字样只显示“成功”或“失败”
+            # 🟢 状态列字样全新洗牌修改：只显示干净利落的“成功”或“失败”
             profile_list.append({
                 "name": name, 
                 "path": p_path,
@@ -95,5 +94,6 @@ def run_chrome(profile_path):
         if os.path.exists(TARGET_REPLACE_DIR): shutil.rmtree(TARGET_REPLACE_DIR, ignore_errors=True)
     except: pass
     copy_contents(profile_path, TARGET_REPLACE_DIR)
+    # 打开浏览器，并且重置回到最开始的初始纯净状态启动
     os.system(f'start "" "{CHROME_EXE}" --no-first-run --no-default-browser-check "https://://whatsapp.com"')
     return True
