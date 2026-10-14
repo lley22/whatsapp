@@ -11,14 +11,13 @@ from PySide6.QtGui import QAction
 class WhatsAppBackupApp(QMainWindow):
     def __init__(self):
         super().__init__()
-        # 完美锁定窗口标题不变
+        # 完美锁定原图窗口标题不变
         self.setWindowTitle("导入打包备份 WhatsApp")
-        self.resize(750, 420)
-        self.setAcceptDrops(True) # 启用系统级拖拽
+        self.resize(850, 420)
+        self.setAcceptDrops(True) # 启用系统级多文件拖拽
         
-        # 锁死默认浏览器启动地址
+        # 内置固定的便携版浏览器地址与替换目标路径
         self.chrome_exe_path = r"C:\Users\Administrator\Desktop\GoogleChromePortable\GoogleChromePortable.exe"
-        # 锁死需要被全选覆盖替换的目标路径
         self.target_replace_dir = r"C:\Users\Administrator\Desktop\GoogleChromePortable\Data\profile\Default"
         
         self.cache_root = os.path.join(os.getcwd(), "whatsapp_runtime_env")
@@ -30,33 +29,54 @@ class WhatsAppBackupApp(QMainWindow):
         main_layout = QVBoxLayout(main_widget)
         main_layout.setContentsMargins(15, 15, 15, 15)
         
-        # 完美复刻原图提示
-        self.tip_label = QLabel("将 .bin（或 .zip）打包文件拖放到本窗口，选中后点执行自动解压并登录。")
+        # 提示文本保持一致
+        self.tip_label = QLabel("将 .bin（或 .zip）打包文件拖放到本窗口，左键点击文件可刷新右侧子页面数据。")
         self.tip_label.setStyleSheet("color: #000000; font-family: 'Microsoft YaHei'; font-size: 13px; padding-bottom: 5px;")
         main_layout.addWidget(self.tip_label)
         
-        # 完美复刻原图等宽网格表格
-        self.table = QTableWidget(0, 3)
-        self.table.setHorizontalHeaderLabels(["备份文件", "状态", "操作"])
-        self.table.setShowGrid(True)
-        self.table.setAlternatingRowColors(True)
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self.table.horizontalHeader().setStyleSheet("QHeaderView::section { background-color: #eaeaea; font-weight: bold; }")
+        # --- 🟢 核心重构：左右双屏无缝联动架构（100%防止排版错乱挤压） ---
+        tables_layout = QHBoxLayout()
+        tables_layout.setSpacing(5) # 紧凑贴合
         
-        self.table.setContextMenuPolicy(Qt.CustomContextMenu)
-        self.table.customContextMenuRequested.connect(self.show_context_menu)
-        self.table.itemDoubleClicked.connect(self.on_item_double_clicked)
+        # 1. 左侧表格：文件父页面 (占 25% 宽度分屏比例)
+        self.left_table = QTableWidget(0, 1)
+        self.left_table.setHorizontalHeaderLabels(["文件"])
+        self.left_table.setShowGrid(True)
+        self.left_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.left_table.horizontalHeader().setStyleSheet("QHeaderView::section { background-color: #eaeaea; font-weight: bold; }")
+        # 限制最大横向宽度占整体的 25% 大约 210 像素
+        self.left_table.setFixedWidth(210) 
         
-        main_layout.addWidget(self.table)
+        # 2. 右侧表格：子页面数据、状态、操作联合展区 (占 75% 宽度分屏比例)
+        self.right_table = QTableWidget(0, 3)
+        self.right_table.setHorizontalHeaderLabels(["数据", "状态", "操作"])
+        self.right_table.setShowGrid(True)
+        self.right_table.setAlternatingRowColors(True)
+        # 让右侧的三栏完全均分等宽（每栏各占 25% 比例位置）
+        self.right_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.right_table.horizontalHeader().setStyleSheet("QHeaderView::section { background-color: #eaeaea; font-weight: bold; }")
         
-        # 🟢 env_map 现在存储每一行对应的具体文件夹路径，实现分别独立控制
-        self.env_map = {}
+        # 将两个表格塞入主窗口布局
+        tables_layout.addWidget(self.left_table)
+        tables_layout.addWidget(self.right_table)
+        main_layout.addLayout(tables_layout)
+        
+        # 监听左侧表格的左键点击切换联动信号
+        self.left_table.itemClicked.connect(self.on_left_item_clicked)
+        
+        # 开启左侧表格的右键菜单策略
+        self.left_table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.left_table.customContextMenuRequested.connect(self.show_left_context_menu)
+        
+        # 全局留档缓存映射数据结构
+        self.archive_data_map = {}
 
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls():
             event.acceptProposedAction()
 
     def dropEvent(self, event):
+        # 循环依次处理拉入的每一个包文件
         for url in event.mimeData().urls():
             file_path = url.toLocalFile()
             if file_path.lower().endswith('.zip') or file_path.lower().endswith('.bin'):
@@ -76,148 +96,141 @@ class WhatsAppBackupApp(QMainWindow):
             else:
                 shutil.copy2(s, d)
 
-    # 🟢 核心重构：支持同一个包内检测到多个 Profile 时，“分别拆分”渲染到表格中
+    # 处理拉入包：第一栏显示纯文件名，并在后台静默离线检索多Profile特征
     def process_backup_file(self, file_path):
         pure_filename = os.path.basename(file_path)
         safe_name = pure_filename.replace('.', '_')
         
-        # 为了防止批量拖入导致临时目录冲突，每次随机或按行号生成临时解压目录
-        temp_id = self.table.rowCount()
-        temp_extract_dir = os.path.join(self.cache_root, f"env_{safe_name}_{temp_id}")
+        row = self.left_table.rowCount()
+        temp_extract_dir = os.path.join(self.cache_root, f"env_{safe_name}_{row}")
         
         try:
-            # 1. 先把这个压缩包解压到一个独立的过渡文件夹里
+            # 1. 解压过渡
             if os.path.exists(temp_extract_dir):
                 shutil.rmtree(temp_extract_dir, ignore_errors=True)
             with zipfile.ZipFile(file_path, 'r') as zip_ref:
                 zip_ref.extractall(temp_extract_dir)
             
-            # 生成需要匹配的 101 种文件夹名称特征集合（小写便于比对）
+            # 101种文件夹名字特征匹配集
             valid_profile_names = {"default"}
             for i in range(1, 101):
                 valid_profile_names.add(f"profile {i}")
             
-            # 🟢 2. 遍历找出解压后目录里“所有”符合这 101 种特征的独立文件夹路径
+            # 2. 深度深挖里面所有的 Profile 目录
             found_profiles_list = []
             for dirpath, dirnames, filenames in os.walk(temp_extract_dir):
                 current_folder_name = os.path.basename(dirpath).lower()
                 if current_folder_name in valid_profile_names:
                     found_profiles_list.append(dirpath)
             
-            # 如果包里竟然一个有效的 Profile 文件夹都没找到，则把根目录当作唯一的源（兼容旧格式）
             if not found_profiles_list:
                 found_profiles_list.append(temp_extract_dir)
 
-            # 🟢 3. “分别选”逻辑：遍历刚刚捞出来的每一个独立环境，分别在表格里渲染出一行！
+            # 3. 依次对里面的每一个独立子环境执行底层 leveldb 离线数据翻阅
+            profile_data_list = []
             for profile_path in found_profiles_list:
-                row = self.table.rowCount()
-                self.table.insertRow(row)
-                
-                # 获取它具体是哪个环境的名字，比如叫 Default 还是 Profile 1
                 env_name = os.path.basename(profile_path)
-                # 拼接显示：包名 (对应的环境名)，例如：张三.zip (Profile 1)
-                display_name = f"{pure_filename} ({env_name})" if len(found_profiles_list) > 1 or env_name != os.path.basename(temp_extract_dir) else pure_filename
+                if env_name == os.path.basename(temp_extract_dir):
+                    env_name = "Default"
                 
-                path_item = QTableWidgetItem(display_name)
-                path_item.setFlags(path_item.flags() & ~Qt.ItemIsEditable)
-                self.table.setItem(row, 0, path_item)
-                
-                status_item = QTableWidgetItem("正在甄别...")
-                status_item.setTextAlignment(Qt.AlignCenter)
-                status_item.setFlags(status_item.flags() & ~Qt.ItemIsEditable)
-                self.table.setItem(row, 1, status_item)
-                
-                # 🟢 4. 就地对该环境文件夹的底层 LevelDB 执行离线翻阅甄别
-                is_valid_whatsapp_session = False
+                is_valid = False
                 for dirpath, dirnames, filenames in os.walk(profile_path):
                     if "local storage" in dirpath.lower() and "leveldb" in dirpath.lower():
                         for f in filenames:
                             if f.lower().endswith('.log') or f.lower().endswith('.ldb') or f.lower().endswith('.localstorage'):
-                                db_file_path = os.path.join(dirpath, f)
                                 try:
-                                    with open(db_file_path, 'rb') as db_file:
+                                    with open(os.path.join(dirpath, f), 'rb') as db_file:
                                         if b'whatsapp' in db_file.read() or b'://whatsapp.com' in db_file.read():
-                                            is_valid_whatsapp_session = True
+                                            is_valid = True
                                             break
                                 except:
                                     pass
-                    if is_valid_whatsapp_session:
-                        break
+                    if is_valid: break
                 
-                # 根据甄别结果，独立更新这一行的状态和操作按钮
-                if is_valid_whatsapp_session:
-                    status_item.setText("已导入打开")
-                    status_item.setForeground(Qt.darkGreen)
-                    
-                    open_btn = QPushButton("打开浏览器进入")
-                    open_btn.setStyleSheet("padding: 2px 10px; font-family: 'Microsoft YaHei';")
-                    # 🟢 将这一行绑定到它专属的 profile_path，实现精准分别替换
-                    open_btn.clicked.connect(lambda checked=False, p=profile_path: self.launch_chrome(p))
-                    self.table.setCellWidget(row, 2, open_btn)
-                    
-                    # 记录该行对应的特定独立环境源路径
-                    self.env_map[row] = profile_path
-                else:
-                    status_item.setText("失败：未甄别到登录数据")
-                    status_item.setForeground(Qt.red)
-                    
+                status_str = "已导入打开" if is_valid else "失败：未甄别到登录数据"
+                profile_data_list.append({
+                    "name": env_name,
+                    "path": profile_path,
+                    "status": status_str,
+                    "valid": is_valid
+                })
+
+            # 4. 在左侧表格写入干净的文件名
+            self.left_table.insertRow(row)
+            file_item = QTableWidgetItem(pure_filename)
+            file_item.setFlags(file_item.flags() & ~Qt.ItemIsEditable)
+            self.left_table.setItem(row, 0, file_item)
+            
+            # 5. 将解析出来的信息完好留档
+            self.archive_data_map[row] = {
+                "profiles": profile_data_list,
+                "temp_dir": temp_extract_dir
+            }
+            
+            # 🟢 自动用左键高亮点击当前刚拉入的这一行，让右侧子页面首次联动刷新
+            self.left_table.setCurrentItem(file_item)
+            self.on_left_item_clicked(file_item)
+
         except Exception as e:
-            pass
+            print(f"解压异常: {e}")
         
         QApplication.processEvents()
 
-    def show_context_menu(self, pos: QPoint):
-        item = self.table.itemAt(pos)
+    # 🟢 核心联动交互：左键点击左侧的文件，右侧三列子页面瞬间清空并重组展现！
+    def on_left_item_clicked(self, item):
+        clicked_row = item.row()
+        if clicked_row not in self.archive_data_map:
+            return
+            
+        # 清空右侧表格旧数据
+        self.right_table.setRowCount(0)
+        
+        # 获取该包留档存储的所有子 Profile 环境列表
+        profiles = self.archive_data_map[clicked_row]["profiles"]
+        
+        # 🟢 疯狂吐出：有多少环境就在右侧等宽生成多少行！
+        for idx, pf in enumerate(profiles):
+            self.right_table.insertRow(idx)
+            
+            # 第二栏 数据
+            data_item = QTableWidgetItem(pf["name"])
+            data_item.setFlags(data_item.flags() & ~Qt.ItemIsEditable)
+            self.right_table.setItem(idx, 0, data_item)
+            
+            # 第三栏 状态
+            status_item = QTableWidgetItem(pf["status"])
+            status_item.setTextAlignment(Qt.AlignCenter)
+            status_item.setFlags(status_item.flags() & ~Qt.ItemIsEditable)
+            if pf["valid"]:
+                status_item.setForeground(Qt.darkGreen)
+            else:
+                status_item.setForeground(Qt.red)
+            self.right_table.setItem(idx, 1, status_item)
+            
+            # 第四栏 操作（成功亮起进入按钮）
+            if pf["valid"]:
+                enter_btn = QPushButton("进入")
+                enter_btn.setStyleSheet("padding: 2px 5px; font-weight: bold; background-color: #107c41; color: white;")
+                enter_btn.clicked.connect(lambda checked=False, p=pf["path"]: self.launch_chrome(p))
+                self.right_table.setCellWidget(idx, 2, enter_btn)
+            else:
+                fail_action = QTableWidgetItem("无")
+                fail_action.setTextAlignment(Qt.AlignCenter)
+                fail_action.setFlags(fail_action.flags() & ~Qt.ItemIsEditable)
+                fail_action.setForeground(Qt.gray)
+                self.right_table.setItem(idx, 2, fail_action)
+
+    # 左侧表格右键菜单（支持删除整个包）
+    def show_left_context_menu(self, pos: QPoint):
+        item = self.left_table.itemAt(pos)
         if item is None: return
         row = item.row()
         
         menu = QMenu(self)
-        delete_action = QAction("❌ 删除此项并清理缓存", self)
-        delete_action.triggered.connect(lambda: self.delete_row(row))
+        delete_action = QAction("❌ 删除整个包并清理缓存", self)
+        delete_action.triggered.connect(lambda: self.delete_archive_package(row))
         menu.addAction(delete_action)
-        menu.exec(self.table.viewport().mapToGlobal(pos))
+        menu.exec(self.left_table.viewport().mapToGlobal(pos))
 
-    def delete_row(self, row):
-        if row in self.env_map:
-            del self.env_map[row]
-        self.table.removeRow(row)
-        
-        new_map = {}
-        for old_row, path in self.env_map.items():
-            if old_row > row:
-                new_map[old_row - 1] = path
-            else:
-                new_map[old_row] = path
-        self.env_map = new_map
-
-    def on_item_double_clicked(self, item):
-        row = item.row()
-        if row in self.env_map:
-            self.launch_chrome(self.env_map[row])
-
-    # 🟢 5. 分别激活覆盖替换：只有当你操作某一特定行时，程序才会把该行锁定的独立数据全选替换过去！
-    def launch_chrome(self, specific_profile_path):
-        if not os.path.exists(self.chrome_exe_path):
-            from PySide6.QtWidgets import QMessageBox
-            QMessageBox.critical(self, "错误", f"未找到浏览器，请确保桌面路径正确：\n{self.chrome_exe_path}")
-            return
-            
-        try:
-            # 强制安全清理旧目标，确保全新无污染
-            if os.path.exists(self.target_replace_dir):
-                shutil.rmtree(self.target_replace_dir, ignore_errors=True)
-        except:
-            pass
-            
-        # 🟢 精准执行当前行的单独全选覆盖替换
-        self.copy_folder_contents(specific_profile_path, self.target_replace_dir)
-            
-        # 启动浏览器，并且完美保持你要求的初始最干净状态启动！
-        cmd = f'start "" "{self.chrome_exe_path}" --no-first-run --no-default-browser-check "https://://whatsapp.com"'
-        os.system(cmd)
-
-if __name__ == "__main__":
-    app = QApplication(sys.argv)
-    window = WhatsAppBackupApp()
-    window.show()
-    sys.exit(app.exec())
+    # 物理执行包卸载
+    def delete_archive_package(self, row):
