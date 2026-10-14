@@ -3,27 +3,33 @@ import os
 import zipfile
 import shutil
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, filedialog, messagebox
 import re
 
 class WhatsAppManagerApp:
     def __init__(self, root):
         self.root = root
         self.root.title("WhatsApp 备份环境管理工具")
-        # 优化：右边窗口短一半，界面整体非常小巧紧凑
-        self.root.geometry("600x400")
+        # 优化：保持小巧紧凑的精致比例
+        self.root.geometry("600x420")
         
-        # 🟢 锁死默认浏览器启动地址，删除了多余的输入框
+        # 锁死默认浏览器启动地址
         self.chrome_exe_path = r"C:\Users\Administrator\Desktop\GoogleChromePortable\GoogleChromePortable.exe"
         
         self.cache_root = os.path.join(os.getcwd(), "whatsapp_runtime_env")
         if not os.path.exists(self.cache_root):
             os.makedirs(self.cache_root)
             
-        # 🟢 优化：提示语字体加黑加粗，和最上面的标题颜色样式完全一致
+        # 🟢 优化1：顶部提示语，加黑加粗
         bold_font = ("Microsoft YaHei", 9, "bold")
-        self.tip_label = ttk.Label(root, text="提示：将 .bin 或 .zip 备份文件直接拖放到下方表格中。程序将自动解压状态。", font=bold_font, foreground="black")
-        self.tip_label.pack(anchor=tk.W, padx=10, pady=10)
+        self.tip_label = ttk.Label(root, text="提示：点击下方按钮可批量选择多个文件，程序将自动解压状态。", font=bold_font, foreground="black")
+        self.tip_label.pack(anchor=tk.W, padx=10, pady=(10, 5))
+        
+        # 🟢 优化2：新增大按钮，支持 Ctrl 键多选、批量一次性导入文件！
+        btn_frame = ttk.Frame(root, padding=5)
+        btn_frame.pack(fill=tk.X)
+        self.import_btn = ttk.Button(btn_frame, text="➕ 批量导入备份文件 (支持多选)", command=self.batch_import_files)
+        self.import_btn.pack(anchor=tk.W, padx=10, pady=2)
         
         # --- 数据表格区 ---
         self.table = ttk.Treeview(root, columns=("path", "status", "action"), show="headings")
@@ -41,8 +47,23 @@ class WhatsAppManagerApp:
         
         self.env_map = {}
         
-        # 🟢 启用升级版多文件全局拖放拦截内核
+        # 依然保留拖拽，作为辅助双保险
         self.setup_windows_drag_and_drop()
+
+    # 🟢 核心新功能：弹出系统窗口，支持批量狂选多个文件导入！
+    def batch_import_files(self):
+        # filetypes 限制只允许选择 zip 和 bin，multiple=True 开启多选支持
+        file_paths = filedialog.askopenfilenames(
+            title="选择 WhatsApp 备份文件 (可按住Ctrl多选)", 
+            filetypes=[("Backup Files", "*.zip *.bin")]
+        )
+        if not file_paths:
+            return
+            
+        # 自动循环排队处理选择上来的每一个备份文件
+        for file_path in file_paths:
+            if os.path.isfile(file_path):
+                self.process_single_backup_file(file_path)
 
     def setup_windows_drag_and_drop(self):
         try:
@@ -54,15 +75,9 @@ class WhatsAppManagerApp:
         except:
             pass
 
-    # 核心：精准解析 Windows 批量拖拽时产生的复杂合并路径字符串
     def handle_global_drop(self, *args):
-        if not args:
-            return
-            
-        # 将传入的所有参数拼接并标准化
+        if not args: return
         raw_drop_str = " ".join([str(arg) for arg in args if arg])
-        
-        # 使用正则表达式精准拆分多路径（兼容带空格、带大括号 {} 的复杂 Windows 批量路径规则）
         file_paths = []
         if "{" in raw_drop_str:
             file_paths = re.findall(r'\{([^}]+)\}', raw_drop_str)
@@ -71,14 +86,12 @@ class WhatsAppManagerApp:
         else:
             file_paths = [p.strip() for p in raw_drop_str.split() if p.strip()]
 
-        # 🟢 循环迭代：像排队一样，依次自动批量处理每一个拖进来的备份文件
         for file_path in file_paths:
             if os.path.isfile(file_path) and (file_path.lower().endswith('.zip') or file_path.lower().endswith('.bin')):
                 self.process_single_backup_file(file_path)
 
-    # 处理单个备份文件的核心解压与特征甄别流程
+    # 单个备份文件解压甄别核心流
     def process_single_backup_file(self, file_path):
-        # 初始插入表格
         item_id = self.table.insert("", tk.END, values=(file_path, "正在解压...", "等待中"))
         self.root.update()
         
@@ -87,7 +100,6 @@ class WhatsAppManagerApp:
         except:
             filename = "archive"
             
-        # 防止批量拖入时发生同名冲突，将 item_id 的微秒后缀融入文件夹名称
         safe_item_name = item_id.replace('.', '_')
         target_env_dir = os.path.join(self.cache_root, f"env_{filename}_{safe_item_name}")
         
@@ -97,21 +109,18 @@ class WhatsAppManagerApp:
             with zipfile.ZipFile(file_path, 'r') as zip_ref:
                 zip_ref.extractall(target_env_dir)
             
-            # 🟢 核心三层深度甄别特征比对算法
+            # 三层深度特征比对甄别
             has_session = False
             for dirpath, dirnames, filenames in os.walk(target_env_dir):
-                # 判定特征1：存在本地数据持久化层 Local Storage 痕迹
-                # 判定特征2：存在官方默认环境数据目录 Default
                 if "Local Storage" in dirpath or "Default" in dirnames:
                     has_session = True
                     break
-                # 判定特征3：存在常驻网络特征文件
                 if any("cookies" in f.lower() or "manifest" in f.lower() or "lock" in f.lower() for f in filenames):
                     has_session = True
                     break
             
             if has_session:
-                # 🟢 优化：获取成功后，第一列直接更新展现为获取成功的本地环境存储地址
+                # 获取成功，刷新显示本地成功的解压环境地址！
                 self.table.item(item_id, values=(target_env_dir, "获取成功（已就绪）", "双击此行打开浏览器"))
                 self.env_map[item_id] = target_env_dir
             else:
@@ -122,7 +131,6 @@ class WhatsAppManagerApp:
         
         self.root.update()
 
-    # 右键弹出菜单
     def show_context_menu(self, event):
         item_id = self.table.identify_row(event.y)
         if not item_id: return
@@ -132,14 +140,12 @@ class WhatsAppManagerApp:
         menu.add_command(label="❌ 删除此项并清理缓存", command=lambda: self.delete_row(item_id))
         menu.post(event.x_root, event.y_root)
 
-    # 物理清除对应的解压临时数据文件夹并移除表格
     def delete_row(self, item_id):
         if item_id in self.env_map:
             shutil.rmtree(self.env_map[item_id], ignore_errors=True)
             del self.env_map[item_id]
         self.table.delete(item_id)
 
-    # 双击表格行：拉起桌面上的便携浏览器并强制灌入独立登录会话环境
     def on_table_double_click(self, event):
         item_id = self.table.focus()
         if item_id in self.env_map:
@@ -148,7 +154,6 @@ class WhatsAppManagerApp:
                 return
                 
             env_dir = self.env_map[item_id]
-            # 通过系统指令调用，完美注入 --user-data-dir
             cmd = f'start "" "{self.chrome_exe_path}" --user-data-dir="{env_dir}" --no-first-run --no-default-browser-check "https://whatsapp.com"'
             os.system(cmd)
 
