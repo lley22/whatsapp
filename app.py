@@ -2,157 +2,104 @@ import sys
 import os
 import zipfile
 import shutil
-from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
-                             QHBoxLayout, QTableWidget, QTableWidgetItem, 
-                             QLabel, QPushButton, QHeaderView, QFileDialog, QLineEdit)
-from PySide6.QtCore import Qt
+import tkinter as tk
+from tkinter import ttk, filedialog, messagebox
 
-class WhatsAppManagerApp(QMainWindow):
-    def __init__(self):
-        super().__init__()
-        self.setWindowTitle("WhatsApp ±¸·İ»·¾³¹ÜÀí¹¤¾ß")
-        self.resize(850, 450)
-        self.setAcceptDrops(True) # ÆôÓÃÍÏ×§
+class WhatsAppManagerApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("WhatsApp å¤‡ä»½ç¯å¢ƒç®¡ç†å·¥å…·")
+        self.root.geometry("850x450")
         
-        # Ä¬ÈÏ±ãĞ¯°æä¯ÀÀÆ÷Â·¾¶£¨¿ÉÓÉÓÃ»§Ñ¡Ôñ¸ü¸Ä£©
         self.chrome_exe_path = ""
-        # ×Ô¶¯½âÑ¹ÊÍ·ÅµÄ»º´æ¸ùÄ¿Â¼
         self.cache_root = os.path.join(os.getcwd(), "whatsapp_runtime_env")
         os.makedirs(self.cache_root, exist_ok=True)
         
-        # Ö÷²¼¾Ö
-        main_widget = QWidget()
-        self.setCentralWidget(main_widget)
-        main_layout = QVBoxLayout(main_widget)
+        # --- é¡¶éƒ¨ï¼šæµè§ˆå™¨è·¯å¾„ ---
+        top_frame = ttk.Frame(root, padding=10)
+        top_frame.pack(fill=tk.X)
         
-        # --- ¶¥²¿£ºÃâ°²×°ä¯ÀÀÆ÷Â·¾¶Ñ¡ÔñÇøÓò ---
-        browser_layout = QHBoxLayout()
-        browser_layout.addWidget(QLabel("Ãâ°²×°ChromeÂ·¾¶:"))
-        self.path_input = QLineEdit()
-        self.path_input.setPlaceholderText("ÇëÑ¡Ôñ»òÍÏÈë chrome.exe µÄÂ·¾¶...")
-        browser_layout.addWidget(self.path_input)
+        ttk.Label(top_frame, text="å…å®‰è£…Chromeè·¯å¾„:").pack(side=tk.LEFT)
+        self.path_var = tk.StringVar()
+        self.path_entry = ttk.Entry(top_frame, textvariable=self.path_var, width=60)
+        self.path_entry.pack(side=tk.LEFT, padx=5)
         
-        self.btn_select_chrome = QPushButton("Ñ¡Ôñä¯ÀÀÆ÷")
-        self.btn_select_chrome.clicked.connect(self.select_chrome_dialog)
-        browser_layout.addWidget(self.btn_select_chrome)
-        main_layout.addLayout(browser_layout)
+        ttk.Button(top_frame, text="é€‰æ‹©æµè§ˆå™¨", command=self.select_chrome).pack(side=tk.LEFT)
         
-        # ÌáÊ¾±êÇ©
-        self.tip_label = QLabel("ÌáÊ¾£º½« .bin »ò .zip ±¸·İÎÄ¼şÖ±½ÓÍÏ·Åµ½ÏÂ·½±í¸ñÖĞ¡£³ÌĞò½«×Ô¶¯½âÑ¹²¢Õç±ğµÇÂ¼×´Ì¬¡£")
-        self.tip_label.setStyleSheet("color: #666; font-size: 12px; padding: 2px;")
-        main_layout.addWidget(self.tip_label)
+        # æç¤º
+        ttk.Label(root, text="è¯´æ˜ï¼šè¯·é€‰æ‹©å…å®‰è£…æµè§ˆå™¨ã€‚ç‚¹å‡»ä¸‹æ–¹æ·»åŠ å¤‡ä»½æŒ‰é’®å¼•å…¥ zip æˆ– bin æ ¼å¼çš„ç™»å½•å¤‡ä»½ã€‚", foreground="gray").pack(anchor=tk.W, padx=10)
         
-        # --- ÖĞ²¿£ºÊı¾İ±í¸ñ ---
-        self.table = QTableWidget(0, 3)
-        self.table.setHorizontalHeaderLabels(["±¸·İÎÄ¼şÂ·¾¶", "Õç±ğ×´Ì¬", "²Ù×÷"])
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        main_layout.addWidget(self.table)
+        # --- ä¸­éƒ¨ï¼šæ•°æ®è¡¨æ ¼å’Œæ·»åŠ æŒ‰é’® ---
+        btn_frame = ttk.Frame(root, padding=5)
+        btn_frame.pack(fill=tk.X)
+        ttk.Button(btn_frame, text="+ æ·»åŠ å¹¶ç”„åˆ«å¤‡ä»½æ–‡ä»¶", command=self.add_backup_file).pack(side=tk.LEFT, padx=10)
+        
+        # è¡¨æ ¼
+        self.table = ttk.Treeview(root, columns=("path", "status", "action"), show="headings")
+        self.table.heading("path", text="å¤‡ä»½æ–‡ä»¶è·¯å¾„")
+        self.table.heading("status", text="ç”„åˆ«çŠ¶æ€")
+        self.table.heading("action", text="æ“ä½œ")
+        self.table.column("path", width=400)
+        self.table.column("status", width=200)
+        self.table.column("action", width=150)
+        self.table.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+        
+        # ç»‘å®šç‚¹å‡»è¡¨æ ¼äº‹ä»¶
+        self.table.bind("<Double-1>", self.on_table_click)
+        self.env_map = {}
 
-    # Ñ¡ÔñÃâ°²×°¹È¸èä¯ÀÀÆ÷Â·¾¶
-    def select_chrome_dialog(self):
-        file_path, _ = QFileDialog.getOpenFileName(self, "Ñ¡ÔñÃâ°²×° Chrome.exe", "", "Executable (*.exe)")
+    def select_chrome(self):
+        file_path = filedialog.askopenfilename(title="é€‰æ‹©å…å®‰è£… Chrome.exe", filetypes=[("Executable", "*.exe")])
         if file_path:
             self.chrome_exe_path = file_path
-            self.path_input.setText(file_path)
+            self.path_var.set(file_path)
 
-    # ÍÏÈëÎÄ¼şÊÂ¼ş´¦Àí
-    def dragEnterEvent(self, event):
-        if event.mimeData().hasUrls():
-            event.acceptProposedAction()
-
-    # ·Å¿ªÊó±êÊÂ¼ş£ºÕç±ğÊÇä¯ÀÀÆ÷»¹ÊÇ±¸·İ°ü
-    def dropEvent(self, event):
-        for url in event.mimeData().urls():
-            file_path = url.toLocalFile()
-            
-            # Âß¼­ÅĞ¶¨1£ºÈç¹ûÊÇÖ±½ÓÍÏÈë chrome.exe
-            if file_path.lower().endswith("chrome.exe"):
-                self.chrome_exe_path = file_path
-                self.path_input.setText(file_path)
-                continue
-                
-            # Âß¼­ÅĞ¶¨2£ºÈç¹ûÊÇÍÏÈë±¸·İÑ¹Ëõ°ü
-            if file_path.lower().endswith('.zip') or file_path.lower().endswith('.bin'):
-                self.process_backup_file(file_path)
-
-    # ºËĞÄ£º´¦Àí²¢Õç±ğ±¸·İÎÄ¼ş
-    def process_backup_file(self, file_path):
-        row = self.table.rowCount()
-        self.table.insertRow(row)
-        self.table.setItem(row, 0, QTableWidgetItem(file_path))
-        
-        status_item = QTableWidgetItem("ÕıÔÚÕç±ğ...")
-        self.table.setItem(row, 1, status_item)
-        
-        # Îª¸ÃÎÄ¼ş´´½¨¶ÀÁ¢µÄ½âÑ¹ÔËĞĞÄ¿Â¼
-        filename = os.path.basename(file_path).split('.')[0]
-        target_env_dir = os.path.join(self.cache_root, f"env_{filename}_{row}")
-        
-        # 1. Ö´ĞĞ½âÑ¹
-        if not self.extract_archive(file_path, target_env_dir):
-            status_item.setText("Ê§°Ü£º½âÑ¹ÎÄ¼şËğ»µ")
-            status_item.setForeground(Qt.red)
+    def add_backup_file(self):
+        file_path = filedialog.askopenfilename(title="é€‰æ‹© WhatsApp å¤‡ä»½æ–‡ä»¶", filetypes=[("Backup Files", "*.zip *.bin")])
+        if not file_path:
             return
-
-        # 2. Õç±ğÊÇ·ñ°üº¬ÓĞĞ§µÄ WhatsApp µÇÂ¼»º´æÎÄ¼ş£¨¼ì²é³£¼ûÌØÕ÷Ä¿Â¼£©
-        if self.verify_whatsapp_session(target_env_dir):
-            status_item.setText("»ñÈ¡³É¹¦£¨ÒÑ¾ÍĞ÷£©")
-            status_item.setForeground(Qt.darkGreen)
             
-            # 3. »ñÈ¡³É¹¦ºó£¬¶¯Ì¬ÔÚÓÒ²àÉú³É¡°´ò¿ª¡±°´Å¥
-            open_btn = QPushButton("´ò¿ªä¯ÀÀÆ÷½øÈë")
-            open_btn.clicked.connect(lambda: self.launch_chrome(target_env_dir))
-            self.table.setCellWidget(row, 2, open_btn)
-        else:
-            status_item.setText("Ê§°Ü£ºÎ´Õç±ğµ½µÇÂ¼±¸·İ")
-            status_item.setForeground(Qt.red)
-            # ÇåÀíÎŞĞ§½âÑ¹Ä¿Â¼
-            shutil.rmtree(target_env_dir, ignore_errors=True)
-
-    # ½âÑ¹Ëã·¨£¨¼æÈİ zip ÓëÎ±×°³É bin µÄ zip£©
-    def extract_archive(self, source, target):
+        item_id = self.table.insert("", tk.END, values=(file_path, "æ­£åœ¨ç”„åˆ«...", "ç­‰å¾…ä¸­"))
+        self.root.update()
+        
+        filename = os.path.basename(file_path).replace('.', '_')
+        target_env_dir = os.path.join(self.cache_root, f"env_{filename}_{item_id}")
+        
+        # è§£å‹
         try:
-            if os.path.exists(target):
-                shutil.rmtree(target)
-            with zipfile.ZipFile(source, 'r') as zip_ref:
-                zip_ref.extractall(target)
-            return True
-        except:
-            return False
-
-    # Õç±ğËã·¨£ºµİ¹é²éÕÒ½âÑ¹ºóÄ¿Â¼ÀïÓĞÃ»ÓĞ´æ·Å Session »ò Local Storage µÄµ×²ãºÛ¼£
-    def verify_whatsapp_session(self, root_dir):
-        has_local_storage = False
-        has_network_data = False
-        
-        for dirpath, dirnames, filenames in os.walk(root_dir):
-            # ¼ì²é¹È¸èä¯ÀÀÆ÷ÌØÓĞµÄ»º´æÎÄ¼ş¼Ğ»òÌØÕ÷ÎÄ¼ş
-            if "Local Storage" in dirpath or "Default" in dirnames:
-                has_local_storage = True
-            # WhatsApp ÍøÒ³°æ³£×¤ÌØÕ÷Êı¾İÎÄ¼ş
-            for f in filenames:
-                if "manifest" in f.lower() or "lock" in f.lower() or "cookies" in f.lower():
-                    has_network_data = True
-                    
-        # Ö»ÒªÂú×ã½á¹¹ÌØÕ÷£¬¼´ÈÏÎª¼ì²âµ½ÁË±¾µØµÇÂ¼±¸·İ
-        return has_local_storage or has_network_data
-
-    # Æô¶¯Ãâ°²×°ä¯ÀÀÆ÷²¢¹ÒÔØ¸Ã»·¾³
-    def launch_chrome(self, env_dir):
-        # ¼ì²éÊÇ·ñÅäÖÃÁËÃâ°²×°ä¯ÀÀÆ÷
-        chrome_exe = self.path_input.text().strip()
-        if not chrome_exe or not os.path.exists(chrome_exe):
-            self.tip_label.setText("¡¾´íÎó¡¿ÇëÏÈÔÚ¶¥²¿Ö¸¶¨»òÍÏÈëÓĞĞ§µÄ¡®Ãâ°²×° Chrome.exe¡¯Â·¾¶£¡")
-            return
+            if os.path.exists(target_env_dir):
+                shutil.rmtree(target_env_dir)
+            with zipfile.ZipFile(file_path, 'r') as zip_ref:
+                zip_ref.extractall(target_env_dir)
             
-        # ×é×° Windows µ×²ãÆô¶¯ÃüÁî£º
-        # --user-data-dir Ç¿ÖÆÈÃÕâ¸öÃâ°²×°ä¯ÀÀÆ÷¶ÁÈ¡ÎÒÃÇ¸Õ¸Õ½âÑ¹³öÀ´µÄ¶ÀÁ¢ WhatsApp »·¾³
-        cmd = f'start "" "{chrome_exe}" --user-data-dir="{env_dir}" --no-first-run --no-default-browser-check "https://whatsapp.com"'
-        os.system(cmd)
-        self.tip_label.setText("ä¯ÀÀÆ÷ÒÑ³É¹¦À­Æğ£¬ÕıÔÚ½øÈë WhatsApp...")
+            # ç”„åˆ«
+            has_session = False
+            for dirpath, dirnames, filenames in os.walk(target_env_dir):
+                if "Local Storage" in dirpath or "Default" in dirnames or any("cookies" in f.lower() for f in filenames):
+                    has_session = True
+                    break
+            
+            if has_session:
+                self.table.item(item_id, values=(file_path, "è·å–æˆåŠŸï¼ˆå·²å°±ç»ªï¼‰", "åŒå‡»æ­¤è¡Œæ‰“å¼€æµè§ˆå™¨"))
+                self.env_map[item_id] = target_env_dir
+            else:
+                self.table.item(item_id, values=(file_path, "å¤±è´¥ï¼šæœªç”„åˆ«åˆ°ç™»å½•å¤‡ä»½", "æ— "))
+                shutil.rmtree(target_env_dir, ignore_errors=True)
+        except:
+            self.table.item(item_id, values=(file_path, "å¤±è´¥ï¼šè§£å‹æŸå", "æ— "))
+
+    def on_table_click(self, event):
+        item_id = self.table.focus()
+        if item_id in self.env_map:
+            chrome_exe = self.path_var.get().strip()
+            if not chrome_exe or not os.path.exists(chrome_exe):
+                messagebox.showerror("é”™è¯¯", "è¯·å…ˆåœ¨é¡¶éƒ¨æŒ‡å®šæœ‰æ•ˆçš„â€˜å…å®‰è£… Chrome.exeâ€™è·¯å¾„ï¼")
+                return
+            env_dir = self.env_map[item_id]
+            cmd = f'start "" "{chrome_exe}" --user-data-dir="{env_dir}" --no-first-run --no-default-browser-check "https://whatsapp.com"'
+            os.system(cmd)
 
 if __name__ == "__main__":
-    app = QApplication(sys.argv)
-    window = WhatsAppManagerApp()
-    window.show()
-    sys.exit(app.exec())
+    root = tk.Tk()
+    app = WhatsAppManagerApp(root)
+    root.mainloop()
